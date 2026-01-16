@@ -3816,8 +3816,10 @@ function drawRain(ctx, now) {
     const viewRight = game.camera.x + game.canvas.width + 120;
     const shoreX = game.island.x + game.island.width;
     const waterY = getWaterLevel();
+    const swimming = game.player.swimming;
 
-    game.weather.splashes = (game.weather.splashes || []).filter((splash) => splash.life > 0);
+    const maxSplashes = swimming ? 80 : 180;
+    game.weather.splashes = (game.weather.splashes || []).filter((splash) => splash.life > 0).slice(-maxSplashes);
     game.weather.splashes.forEach((splash) => {
         splash.life -= dt;
         const alpha = Math.max(0, splash.life / splash.ttl);
@@ -3860,7 +3862,7 @@ function drawRain(ctx, now) {
 
     ctx.save();
     ctx.lineWidth = 1.5;
-    const dropStep = game.player.swimming ? 2 : 1;
+    const dropStep = swimming ? 3 : 1;
     for (let i = 0; i < game.weather.drops.length; i += dropStep) {
         const drop = game.weather.drops[i];
         const step = drop.speed * (dt / 0.016);
@@ -3883,12 +3885,12 @@ function drawRain(ctx, now) {
         if (!hitType) {
             if (drop.x >= shoreX + 6 && hitY >= waterY) {
                 hitType = 'water';
-                hitPosY = waterY;
+                hitPosY = waterY - 1;
             } else if (drop.x < shoreX + 6) {
                 const groundY = groundSurfaceAt(drop.x);
                 if (hitY >= groundY) {
                     hitType = 'ground';
-                    hitPosY = groundY;
+                    hitPosY = groundY - 1;
                 }
             }
         }
@@ -3901,6 +3903,7 @@ function drawRain(ctx, now) {
             } else if (hitType === 'ground') {
                 pushSplash('ground', drop.x, hitPosY, 1);
                 pushSplash('ground', drop.x + 2, hitPosY + 1, 0.7);
+                pushSplash('spray', drop.x - 1, hitPosY - 2, 0.5);
             } else if (hitType === 'leaf') {
                 pushSplash('leaf', drop.x, hitPosY, 1);
             }
@@ -3927,7 +3930,7 @@ function drawRain(ctx, now) {
     const waterLeft = Math.max(shoreX, viewLeft);
     const waterWidth = Math.max(0, viewRight - waterLeft);
     ctx.strokeStyle = 'rgba(220, 235, 255, 0.35)';
-    const rippleCount = game.player.swimming ? 10 : 18;
+    const rippleCount = swimming ? 6 : 18;
     for (let i = 0; i < rippleCount; i++) {
         const rx = waterLeft + ((i * 97 + now * 0.05) % Math.max(1, waterWidth));
         const ry = waterY + Math.sin(now * 0.006 + i) * 2;
@@ -3937,7 +3940,8 @@ function drawRain(ctx, now) {
     }
 
     ctx.fillStyle = 'rgba(220, 235, 255, 0.35)';
-    for (let i = 0; i < 14; i++) {
+    const groundDrops = swimming ? 6 : 14;
+    for (let i = 0; i < groundDrops; i++) {
         const rx = game.island.x + ((i * 83 + now * 0.04) % game.island.width);
         const ry = groundSurfaceAt(rx) + 2;
         ctx.beginPath();
@@ -4220,6 +4224,9 @@ function render() {
     }
 
     // Draw money with better styling
+    ctx.globalAlpha = 1;
+    ctx.filter = 'none';
+    ctx.shadowBlur = 0;
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
     ctx.fillRect(15, 15, 150, 35);
     ctx.strokeStyle = '#f39c12';
