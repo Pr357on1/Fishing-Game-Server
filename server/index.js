@@ -7,7 +7,8 @@ const PORT = process.env.PORT || 8080;
 const wss = new WebSocketServer({ port: PORT });
 
 const clients = new Map();
-const dataDir = path.join(process.cwd(), 'data');
+const persistentRoot = process.env.RENDER_PERSISTENT_DIR || '/var/data';
+const dataDir = fs.existsSync(persistentRoot) ? persistentRoot : path.join(process.cwd(), 'data');
 const dataFile = path.join(dataDir, 'players.json');
 const RAIN_BOUNDS = {
   minX: -120,
