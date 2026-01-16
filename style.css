@@ -45,6 +45,24 @@ body {
     pointer-events: none;
 }
 
+.version-badge {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(10, 20, 30, 0.75);
+    color: #f8fbff;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    pointer-events: none;
+    z-index: 15;
+}
+
+.toast-container {
+    top: 60px;
+}
 .toast {
     background: rgba(16, 38, 52, 0.92);
     color: #f8fbff;
