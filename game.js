@@ -3956,6 +3956,7 @@ function render() {
     const zoom = game.camera.zoom;
     const now = performance.now();
     const timeSeconds = now / 1000;
+    const lowPerfWater = game.player.swimming;
     
     // Enable smooth rendering for zoomed-in scene
     ctx.imageSmoothingEnabled = true;
@@ -3981,7 +3982,8 @@ function render() {
     ctx.fillRect(0, 0, game.canvas.width, game.canvas.height);
     
     // Draw clouds
-    for (let i = 0; i < 5; i++) {
+    const cloudCount = lowPerfWater ? 2 : 5;
+    for (let i = 0; i < cloudCount; i++) {
         const cloudX = (-game.camera.x * 0.3 + i * 400 + Math.sin(timeSeconds + i) * 50) % (game.canvas.width + 200) - 100;
         const cloudY = 50 + i * 80;
         drawCloud(cloudX, cloudY);
@@ -4011,19 +4013,24 @@ function render() {
 
         // Water pattern
         const waterColors = ['#4E7FE0', '#3F6BD1', '#3860BA'];
-        const waterPixelSize = 6;
+        const waterPixelSize = lowPerfWater ? 12 : 6;
         const timeOffset = Math.floor(now / 140);
         ctx.save();
         waterPath();
         ctx.clip();
-        for (let x = waterStart; x < game.canvas.width; x += waterPixelSize) {
-            for (let y = waterY - 20; y < game.canvas.height; y += waterPixelSize) {
-                const patternX = Math.floor((x + timeOffset) / waterPixelSize);
-                const patternY = Math.floor((y - waterY) / waterPixelSize);
-                const noise = (patternX * 73 + patternY * 37) % waterColors.length;
-                ctx.fillStyle = waterColors[noise];
-                ctx.fillRect(x, y, waterPixelSize, waterPixelSize);
+        if (!lowPerfWater) {
+            for (let x = waterStart; x < game.canvas.width; x += waterPixelSize) {
+                for (let y = waterY - 20; y < game.canvas.height; y += waterPixelSize) {
+                    const patternX = Math.floor((x + timeOffset) / waterPixelSize);
+                    const patternY = Math.floor((y - waterY) / waterPixelSize);
+                    const noise = (patternX * 73 + patternY * 37) % waterColors.length;
+                    ctx.fillStyle = waterColors[noise];
+                    ctx.fillRect(x, y, waterPixelSize, waterPixelSize);
+                }
             }
+        } else {
+            ctx.fillStyle = waterColors[1];
+            ctx.fillRect(waterStart, waterY - 20, game.canvas.width - waterStart, game.canvas.height - waterY + 40);
         }
         ctx.restore();
 
@@ -4031,15 +4038,17 @@ function render() {
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        for (let x = waterStart; x <= game.canvas.width; x += 8) {
-            const wave = Math.sin((x + now * 0.08) / 40) * 3;
+        const waveStep = lowPerfWater ? 16 : 8;
+        for (let x = waterStart; x <= game.canvas.width; x += waveStep) {
+            const wave = Math.sin((x + now * 0.08) / 40) * (lowPerfWater ? 2 : 3);
             ctx.lineTo(x, waterY + wave);
         }
         ctx.stroke();
 
         // Subtle wave bands
         ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
-        for (let i = 0; i < 3; i++) {
+        const bandCount = lowPerfWater ? 1 : 3;
+        for (let i = 0; i < bandCount; i++) {
             const bandY = waterY + 16 + i * 18 + Math.sin(timeSeconds * 2 + i) * 2;
             ctx.fillRect(waterStart, bandY, game.canvas.width - waterStart, 2);
         }
