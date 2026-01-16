@@ -4223,10 +4223,12 @@ function render() {
         ctx.restore();
     }
 
-    // Draw money with better styling
+    // Draw money with better styling (reset any rain/scene state)
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
     ctx.filter = 'none';
     ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
     ctx.fillRect(15, 15, 150, 35);
     ctx.strokeStyle = '#f39c12';
