@@ -257,6 +257,21 @@ const DEFAULT_ROD_STATS = {
     luck: 0
 };
 
+function drawRoundedRect(ctx, x, y, w, h, r) {
+    const radius = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + w - radius, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+    ctx.lineTo(x + w, y + h - radius);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+    ctx.lineTo(x + radius, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+}
+
 // Shop Items (using pixel art sprites)
 const SHOP_ITEMS = [
     {
@@ -4479,20 +4494,33 @@ function render() {
         ctx.restore();
     }
 
-    // Draw money with better styling (reset any rain/scene state)
+    // Draw money HUD (Tiny Fishing style)
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
     ctx.filter = 'none';
     ctx.shadowBlur = 0;
     ctx.shadowColor = 'transparent';
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-    ctx.fillRect(15, 15, 150, 35);
-    ctx.strokeStyle = '#f39c12';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(15, 15, 150, 35);
-    ctx.fillStyle = '#f39c12';
-    ctx.font = 'bold 20px Arial';
-    ctx.fillText(`$${game.money}`, 25, 40);
+    const hudX = 20;
+    const hudY = 18;
+    const hudW = 190;
+    const hudH = 54;
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(22, 40, 90, 0.25)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 4;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    drawRoundedRect(ctx, hudX, hudY, hudW, hudH, 18);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = '#ff7a2f';
+    ctx.font = '700 12px "Fredoka", "Arial", sans-serif';
+    ctx.fillText('EARNINGS', hudX + 14, hudY + 18);
+
+    ctx.fillStyle = '#2a3e7a';
+    ctx.font = '700 24px "Fredoka", "Arial", sans-serif';
+    ctx.fillText(`$${game.money}`, hudX + 14, hudY + 42);
 
     drawPrankOverlays(ctx, now);
 }
