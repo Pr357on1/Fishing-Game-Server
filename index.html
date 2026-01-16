@@ -38,6 +38,7 @@
                 </div>
                 <button id="dev-open" class="close-btn">Admin</button>
                 <button id="dev-panel-open" class="close-btn ui-hidden">Dev Panel</button>
+                <button id="multiplayer-open" class="close-btn">Multiplayer</button>
                 <button class="close-btn panel-close" data-panel="settings-panel">Close</button>
             </div>
             <div id="dialogue-panel" class="panel hidden">
@@ -106,10 +107,67 @@
                     <div class="shop-section">
                         <h3>Sell</h3>
                         <div id="shop-sell"></div>
+                        <div id="sell-controls" class="sell-controls">
+                            <button id="sell-all" class="close-btn">Sell All Eligible</button>
+                            <div class="sell-settings">
+                                <div class="sell-settings-title">Sell Filters</div>
+                                <div class="sell-settings-row">
+                                    <span>Keep rarities</span>
+                                    <div id="sell-rarity-options" class="sell-rarity-options"></div>
+                                </div>
+                                <div class="sell-settings-row">
+                                    <label>
+                                        <input id="keep-big-enabled" type="checkbox">
+                                        Keep fish >=
+                                    </label>
+                                    <input id="keep-big-kg" type="number" min="0" step="0.1" value="0">
+                                    <span>kg</span>
+                                </div>
+                                <div class="sell-settings-row">
+                                    <label>
+                                        <input id="keep-small-enabled" type="checkbox">
+                                        Keep fish <=
+                                    </label>
+                                    <input id="keep-small-kg" type="number" min="0" step="0.1" value="0">
+                                    <span>kg</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="panel-footer">
                     <button class="close-btn panel-close" data-panel="shop-panel">Close</button>
+                </div>
+            </div>
+            <div id="multiplayer-panel" class="panel hidden">
+                <h2>Multiplayer</h2>
+                <div class="mp-tabs">
+                    <button id="mp-mode-gift" class="close-btn">Gift</button>
+                    <button id="mp-mode-trade" class="close-btn">Trade</button>
+                </div>
+                <div class="mp-section">
+                    <div class="mp-list">
+                        <div class="mp-list-title">Players</div>
+                        <div id="mp-players" class="mp-players"></div>
+                    </div>
+                    <div class="mp-list">
+                        <div class="mp-list-title">Your Items</div>
+                        <div id="mp-inventory" class="mp-inventory"></div>
+                    </div>
+                </div>
+                <div class="mp-actions">
+                    <button id="mp-send" class="close-btn">Send Gift</button>
+                    <button id="mp-request" class="close-btn">Request Trade</button>
+                </div>
+                <div id="mp-status" class="mp-status"></div>
+                <button class="close-btn panel-close" data-panel="multiplayer-panel">Close</button>
+            </div>
+            <div id="trade-request-panel" class="panel hidden">
+                <h2>Trade Request</h2>
+                <div id="trade-request-content"></div>
+                <div class="mp-actions">
+                    <button id="trade-accept" class="close-btn">Accept</button>
+                    <button id="trade-decline" class="close-btn">Decline</button>
                 </div>
             </div>
             <div id="fishing-minigame" class="panel hidden">

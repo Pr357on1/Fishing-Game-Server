@@ -440,6 +440,70 @@ body {
     font-size: 18px;
 }
 
+.shop-item.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.shop-item.disabled:hover {
+    background: rgba(236, 245, 247, 0.7);
+    transform: none;
+}
+
+.sell-controls {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.sell-settings {
+    padding: 12px;
+    border-radius: 12px;
+    background: rgba(233, 244, 248, 0.7);
+    border: 1px solid rgba(32, 88, 116, 0.12);
+}
+
+.sell-settings-title {
+    font-weight: 700;
+    color: #1f2d3d;
+    margin-bottom: 8px;
+}
+
+.sell-settings-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 8px 0;
+    color: #2b3a55;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.sell-rarity-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.sell-rarity-pill {
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    cursor: pointer;
+    border: 1px solid rgba(32, 88, 116, 0.2);
+    background: rgba(255, 255, 255, 0.8);
+}
+
+.sell-rarity-pill.selected {
+    border-color: #2a9d8f;
+    box-shadow: 0 0 12px rgba(42, 157, 143, 0.35);
+}
+
 #fishing-minigame {
     top: 50%;
     left: 50%;
@@ -647,6 +711,68 @@ body {
     transform: translate(-50%, -50%);
     min-width: 360px;
     max-width: 460px;
+}
+
+.mp-tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.mp-section {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.mp-list {
+    background: rgba(236, 245, 247, 0.8);
+    border-radius: 12px;
+    padding: 12px;
+    border: 1px solid rgba(32, 88, 116, 0.12);
+}
+
+.mp-list-title {
+    font-weight: 700;
+    color: #1f2d3d;
+    margin-bottom: 8px;
+}
+
+.mp-players,
+.mp-inventory {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+.mp-player,
+.mp-item {
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 10px;
+    padding: 6px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid rgba(32, 88, 116, 0.15);
+    cursor: pointer;
+}
+
+.mp-player.selected,
+.mp-item.selected {
+    border-color: #2a9d8f;
+    box-shadow: 0 0 12px rgba(42, 157, 143, 0.3);
+}
+
+.mp-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin: 16px 0 8px 0;
+}
+
+.mp-status {
+    font-size: 12px;
+    color: #2b3a55;
+    min-height: 16px;
 }
 
 .catch-header {

@@ -6,9 +6,28 @@ const wss = new WebSocketServer({ port: PORT });
 
 const clients = new Map();
 
+function findClientById(id) {
+  for (const [client, data] of clients.entries()) {
+    if (data.id === id) return client;
+  }
+  return null;
+}
+
 wss.on('connection', (ws) => {
   const id = Math.random().toString(36).slice(2);
-  clients.set(ws, { id, x: 0, y: 0, name: 'Guest', avatar: 'reef', facingRight: true, hasRod: false, rodSprite: null });
+  clients.set(ws, {
+    id,
+    x: 0,
+    y: 0,
+    name: 'Guest',
+    avatar: 'reef',
+    facingRight: true,
+    hasRod: false,
+    rodSprite: null,
+    heldSprite: null,
+    heldWeight: 0,
+    heldRarity: null
+  });
 
   ws.send(JSON.stringify({ type: 'welcome', id }));
 
@@ -30,6 +49,9 @@ wss.on('connection', (ws) => {
       player.facingRight = typeof msg.facingRight === 'boolean' ? msg.facingRight : player.facingRight;
       player.hasRod = Boolean(msg.hasRod);
       player.rodSprite = msg.rodSprite || null;
+      player.heldSprite = msg.heldSprite || null;
+      player.heldWeight = typeof msg.heldWeight === 'number' ? msg.heldWeight : 0;
+      player.heldRarity = msg.heldRarity || null;
 
       const payload = JSON.stringify({
         type: 'players',
@@ -39,6 +61,16 @@ wss.on('connection', (ws) => {
       for (const client of clients.keys()) {
         client.send(payload);
       }
+    } else if (msg.type === 'gift' || msg.type === 'trade-request' || msg.type === 'trade-accept' || msg.type === 'trade-decline') {
+      const target = findClientById(msg.toId);
+      if (!target) return;
+      const sender = clients.get(ws);
+      const outgoing = {
+        ...msg,
+        fromId: sender?.id || null,
+        fromName: sender?.name || 'Player'
+      };
+      target.send(JSON.stringify(outgoing));
     }
   });
 

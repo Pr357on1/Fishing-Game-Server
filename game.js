@@ -55,6 +55,7 @@ const game = {
     hotbar: [null, null, null, null, null],
     selectedSlot: 0,
     money: 100,
+    sellSettings: null,
     devMode: false,
     palmTrees: [],
     shopKeeper: {
@@ -117,7 +118,13 @@ const game = {
         reconnectTimer: null,
         name: '',
         avatar: AVATARS[0].id,
-        ready: false
+        ready: false,
+        mode: 'gift',
+        selectedPlayerId: null,
+        selectedItem: null,
+        tradeOffer: null,
+        tradePending: null,
+        tradeRespond: null
     }
 };
 
@@ -292,6 +299,12 @@ function init() {
     // Player setup
     initPlayerSetup();
 
+    // Sell settings
+    initSellSettings();
+
+    // Multiplayer UI
+    initMultiplayerUI();
+
     // Starter gear
     const starterRod = { ...SHOP_ITEMS.find(item => item.type === 'rod' && item.sprite === 'rodBasic'), count: 1 };
     if (starterRod && starterRod.sprite) {
@@ -304,6 +317,139 @@ function init() {
     
     // Start game loop
     gameLoop();
+}
+
+const DEFAULT_SELL_SETTINGS = {
+    keepRarities: {
+        common: false,
+        uncommon: false,
+        rare: false,
+        epic: false,
+        legendary: true
+    },
+    keepBigEnabled: true,
+    keepBigKg: 100,
+    keepSmallEnabled: false,
+    keepSmallKg: 1
+};
+
+function loadSellSettings() {
+    try {
+        const raw = localStorage.getItem('sellSettings');
+        if (!raw) return { ...DEFAULT_SELL_SETTINGS, keepRarities: { ...DEFAULT_SELL_SETTINGS.keepRarities } };
+        const parsed = JSON.parse(raw);
+        return {
+            ...DEFAULT_SELL_SETTINGS,
+            ...parsed,
+            keepRarities: { ...DEFAULT_SELL_SETTINGS.keepRarities, ...(parsed.keepRarities || {}) }
+        };
+    } catch {
+        return { ...DEFAULT_SELL_SETTINGS, keepRarities: { ...DEFAULT_SELL_SETTINGS.keepRarities } };
+    }
+}
+
+function saveSellSettings() {
+    localStorage.setItem('sellSettings', JSON.stringify(game.sellSettings));
+}
+
+function initSellSettings() {
+    game.sellSettings = loadSellSettings();
+    const rarityContainer = document.getElementById('sell-rarity-options');
+    if (rarityContainer) {
+        rarityContainer.innerHTML = '';
+        Object.keys(DEFAULT_SELL_SETTINGS.keepRarities).forEach((rarity) => {
+            const pill = document.createElement('button');
+            pill.type = 'button';
+            pill.className = 'sell-rarity-pill';
+            pill.textContent = rarity;
+            pill.style.background = getRarityColor(rarity);
+            pill.classList.toggle('selected', game.sellSettings.keepRarities[rarity]);
+            pill.addEventListener('click', () => {
+                game.sellSettings.keepRarities[rarity] = !game.sellSettings.keepRarities[rarity];
+                pill.classList.toggle('selected', game.sellSettings.keepRarities[rarity]);
+                saveSellSettings();
+                updateShopDisplay();
+            });
+            rarityContainer.appendChild(pill);
+        });
+    }
+
+    const keepBigEnabled = document.getElementById('keep-big-enabled');
+    const keepBigKg = document.getElementById('keep-big-kg');
+    const keepSmallEnabled = document.getElementById('keep-small-enabled');
+    const keepSmallKg = document.getElementById('keep-small-kg');
+    if (keepBigEnabled && keepBigKg && keepSmallEnabled && keepSmallKg) {
+        keepBigEnabled.checked = game.sellSettings.keepBigEnabled;
+        keepBigKg.value = game.sellSettings.keepBigKg;
+        keepSmallEnabled.checked = game.sellSettings.keepSmallEnabled;
+        keepSmallKg.value = game.sellSettings.keepSmallKg;
+
+        keepBigEnabled.addEventListener('change', () => {
+            game.sellSettings.keepBigEnabled = keepBigEnabled.checked;
+            saveSellSettings();
+            updateShopDisplay();
+        });
+        keepSmallEnabled.addEventListener('change', () => {
+            game.sellSettings.keepSmallEnabled = keepSmallEnabled.checked;
+            saveSellSettings();
+            updateShopDisplay();
+        });
+        keepBigKg.addEventListener('input', () => {
+            game.sellSettings.keepBigKg = parseFloat(keepBigKg.value) || 0;
+            saveSellSettings();
+            updateShopDisplay();
+        });
+        keepSmallKg.addEventListener('input', () => {
+            game.sellSettings.keepSmallKg = parseFloat(keepSmallKg.value) || 0;
+            saveSellSettings();
+            updateShopDisplay();
+        });
+    }
+
+    const sellAllBtn = document.getElementById('sell-all');
+    if (sellAllBtn) {
+        sellAllBtn.addEventListener('click', () => sellAllEligible());
+    }
+}
+
+function isSellProtected(item) {
+    if (!item || !item.weight) return false;
+    const settings = game.sellSettings || DEFAULT_SELL_SETTINGS;
+    if (settings.keepRarities[item.rarity]) return true;
+    if (settings.keepBigEnabled && item.weight >= settings.keepBigKg) return true;
+    if (settings.keepSmallEnabled && item.weight <= settings.keepSmallKg) return true;
+    return false;
+}
+
+function sellAllEligible() {
+    let total = 0;
+    const toRemove = [];
+    game.inventory.forEach((item) => {
+        if (!item.price || !item.sprite || item.type === 'rod') return;
+        if (isSellProtected(item)) return;
+        total += item.price * (item.count || 1);
+        toRemove.push(item);
+    });
+
+    toRemove.forEach((item) => {
+        const index = game.inventory.indexOf(item);
+        if (index > -1) {
+            game.inventory.splice(index, 1);
+        }
+        const hotbarIndex = game.hotbar.indexOf(item);
+        if (hotbarIndex > -1) {
+            game.hotbar[hotbarIndex] = null;
+        }
+    });
+
+    if (total > 0) {
+        game.money += total;
+        showToast(`Sold all eligible fish: +$${total}`, 'success');
+    } else {
+        showToast('No eligible fish to sell.', 'info');
+    }
+    updateHotbar();
+    updateShopDisplay();
 }
 
 function initPlayerSetup() {
@@ -375,6 +521,27 @@ function connectMultiplayer() {
             game.multiplayer.id = msg.id;
         } else if (msg.type === 'players') {
             game.multiplayer.players = msg.players || [];
+            refreshMultiplayerUI();
+        } else if (msg.type === 'gift') {
+            if (msg.item) {
+                addToInventory(msg.item);
+                showToast(`Received gift from ${msg.fromName || 'player'}`, 'success');
+                updateInventoryDisplay();
+            }
+        } else if (msg.type === 'trade-request') {
+            game.multiplayer.tradeOffer = msg;
+            showTradeRequest(msg);
+        } else if (msg.type === 'trade-accept') {
+            if (msg.offerItem && msg.returnItem) {
+                removeMatchingItem(msg.offerItem);
+                addToInventory(msg.returnItem);
+                showToast(`Trade completed with ${msg.fromName || 'player'}`, 'success');
+                updateInventoryDisplay();
+            }
+            game.multiplayer.tradePending = null;
+        } else if (msg.type === 'trade-decline') {
+            showToast(`${msg.fromName || 'Player'} declined the trade.`, 'info');
+            game.multiplayer.tradePending = null;
         }
     };
 
@@ -390,6 +557,246 @@ function connectMultiplayer() {
     ws.onerror = () => {
         ws.close();
     };
+}
+
+function initMultiplayerUI() {
+    const openBtn = document.getElementById('multiplayer-open');
+    if (openBtn) {
+        openBtn.addEventListener('click', () => {
+            togglePanel('multiplayer-panel');
+            refreshMultiplayerUI();
+        });
+    }
+
+    const giftBtn = document.getElementById('mp-mode-gift');
+    const tradeBtn = document.getElementById('mp-mode-trade');
+    if (giftBtn && tradeBtn) {
+        giftBtn.addEventListener('click', () => {
+            game.multiplayer.mode = 'gift';
+            refreshMultiplayerUI();
+        });
+        tradeBtn.addEventListener('click', () => {
+            game.multiplayer.mode = 'trade';
+            refreshMultiplayerUI();
+        });
+    }
+
+    const sendBtn = document.getElementById('mp-send');
+    if (sendBtn) {
+        sendBtn.addEventListener('click', () => sendGift());
+    }
+    const requestBtn = document.getElementById('mp-request');
+    if (requestBtn) {
+        requestBtn.addEventListener('click', () => requestTrade());
+    }
+
+    const acceptBtn = document.getElementById('trade-accept');
+    const declineBtn = document.getElementById('trade-decline');
+    if (acceptBtn) {
+        acceptBtn.addEventListener('click', () => acceptTrade());
+    }
+    if (declineBtn) {
+        declineBtn.addEventListener('click', () => declineTrade());
+    }
+}
+
+function refreshMultiplayerUI() {
+    const panel = document.getElementById('multiplayer-panel');
+    if (!panel || panel.classList.contains('hidden')) return;
+    const playersContainer = document.getElementById('mp-players');
+    const inventoryContainer = document.getElementById('mp-inventory');
+    const status = document.getElementById('mp-status');
+    const sendBtn = document.getElementById('mp-send');
+    const requestBtn = document.getElementById('mp-request');
+    if (!playersContainer || !inventoryContainer || !status || !sendBtn || !requestBtn) return;
+
+    const mode = game.multiplayer.mode || 'gift';
+    sendBtn.style.display = mode === 'gift' ? 'inline-flex' : 'none';
+    requestBtn.style.display = mode === 'trade' ? 'inline-flex' : 'none';
+
+    playersContainer.innerHTML = '';
+    const others = (game.multiplayer.players || []).filter(p => p.id !== game.multiplayer.id);
+    others.forEach((player) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'mp-player';
+        btn.textContent = player.name || player.id.slice(0, 6);
+        btn.classList.toggle('selected', game.multiplayer.selectedPlayerId === player.id);
+        btn.addEventListener('click', () => {
+            game.multiplayer.selectedPlayerId = player.id;
+            refreshMultiplayerUI();
+        });
+        playersContainer.appendChild(btn);
+    });
+
+    inventoryContainer.innerHTML = '';
+    game.inventory.forEach((item) => {
+        if (!canSendItem(item)) return;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'mp-item';
+        btn.textContent = item.weight ? `${item.name} ${item.weight.toFixed(1)}kg` : item.name;
+        btn.classList.toggle('selected', game.multiplayer.selectedItem === item);
+        btn.addEventListener('click', () => {
+            game.multiplayer.selectedItem = item;
+            refreshMultiplayerUI();
+        });
+        inventoryContainer.appendChild(btn);
+    });
+
+    if (game.multiplayer.tradeRespond) {
+        status.textContent = 'Select an item to return, then click Request Trade.';
+    } else {
+        status.textContent = mode === 'gift'
+            ? 'Select a player and an item to gift.'
+            : 'Select a player and an item to offer in trade.';
+    }
+}
+
+function canSendItem(item) {
+    if (!item || !item.sprite) return false;
+    if (item.type === 'rod') return false;
+    return true;
+}
+
+function serializeItem(item) {
+    return {
+        name: item.name,
+        sprite: item.sprite,
+        rarity: item.rarity,
+        weight: item.weight || 0,
+        price: item.price || 0,
+        type: item.type || null,
+        count: item.count || 1
+    };
+}
+
+function removeMatchingItem(itemData) {
+    const match = game.inventory.find((item) => {
+        if (item.weight && itemData.weight) {
+            return item.sprite === itemData.sprite && item.weight === itemData.weight;
+        }
+        return item.name === itemData.name && item.type === itemData.type;
+    });
+    if (!match) return;
+    if (!match.weight && match.count > 1) {
+        match.count -= 1;
+    } else {
+        const index = game.inventory.indexOf(match);
+        if (index > -1) {
+            game.inventory.splice(index, 1);
+        }
+    }
+    updateHotbar();
+}
+
+function sendGift() {
+    const targetId = game.multiplayer.selectedPlayerId;
+    const item = game.multiplayer.selectedItem;
+    if (!targetId || !item) {
+        showToast('Select a player and an item.', 'info');
+        return;
+    }
+    const ws = game.multiplayer.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        showToast('Not connected to server.', 'error');
+        return;
+    }
+    const itemData = serializeItem(item);
+    removeMatchingItem(itemData);
+    ws.send(JSON.stringify({
+        type: 'gift',
+        toId: targetId,
+        item: itemData
+    }));
+    showToast('Gift sent!', 'success');
+    updateInventoryDisplay();
+}
+
+function requestTrade() {
+    const targetId = game.multiplayer.selectedPlayerId;
+    const item = game.multiplayer.selectedItem;
+    if (!targetId || !item) {
+        showToast('Select a player and an item.', 'info');
+        return;
+    }
+    const ws = game.multiplayer.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        showToast('Not connected to server.', 'error');
+        return;
+    }
+    if (game.multiplayer.tradeRespond) {
+        const offer = game.multiplayer.tradeRespond.offerItem;
+        const returnItem = serializeItem(item);
+        removeMatchingItem(returnItem);
+        addToInventory(offer);
+        ws.send(JSON.stringify({
+            type: 'trade-accept',
+            toId: game.multiplayer.tradeRespond.fromId,
+            tradeId: game.multiplayer.tradeRespond.tradeId,
+            offerItem: offer,
+            returnItem
+        }));
+        showToast('Trade accepted.', 'success');
+        game.multiplayer.tradeRespond = null;
+        updateInventoryDisplay();
+        return;
+    }
+
+    const tradeId = Math.random().toString(36).slice(2);
+    game.multiplayer.tradePending = { tradeId, offerItem: serializeItem(item), toId: targetId };
+    ws.send(JSON.stringify({
+        type: 'trade-request',
+        toId: targetId,
+        tradeId,
+        offerItem: game.multiplayer.tradePending.offerItem
+    }));
+    showToast('Trade request sent.', 'success');
+}
+
+function showTradeRequest(msg) {
+    const panel = document.getElementById('trade-request-panel');
+    const content = document.getElementById('trade-request-content');
+    if (!panel || !content) return;
+    const offer = msg.offerItem;
+    content.innerHTML = '';
+    const title = document.createElement('div');
+    title.textContent = `${msg.fromName || 'Player'} offers ${offer.name}`;
+    const detail = document.createElement('div');
+    detail.textContent = offer.weight ? `${offer.weight.toFixed(1)}kg (${offer.rarity})` : offer.rarity || '';
+    content.appendChild(title);
+    content.appendChild(detail);
+    panel.classList.remove('hidden');
+}
+
+function acceptTrade() {
+    const msg = game.multiplayer.tradeOffer;
+    if (!msg) return;
+    const panel = document.getElementById('trade-request-panel');
+    if (panel) panel.classList.add('hidden');
+    togglePanel('multiplayer-panel');
+    game.multiplayer.mode = 'trade';
+    game.multiplayer.selectedPlayerId = msg.fromId;
+    game.multiplayer.selectedItem = null;
+    game.multiplayer.tradeRespond = msg;
+    refreshMultiplayerUI();
+    showToast('Select an item to return and click Request Trade.', 'info');
+}
+
+function declineTrade() {
+    const msg = game.multiplayer.tradeOffer;
+    if (!msg) return;
+    const ws = game.multiplayer.ws;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            type: 'trade-decline',
+            toId: msg.fromId,
+            tradeId: msg.tradeId
+        }));
+    }
+    game.multiplayer.tradeOffer = null;
+    const panel = document.getElementById('trade-request-panel');
+    if (panel) panel.classList.add('hidden');
 }
 
 function loadFishSprites() {
@@ -843,6 +1250,8 @@ function syncMultiplayer() {
     if (now - game.multiplayer.lastSent < 100) return;
     game.multiplayer.lastSent = now;
     const rod = getEquippedRod();
+    const heldItem = game.hotbar[game.selectedSlot];
+    const heldFish = heldItem && heldItem.sprite && (!heldItem.type || heldItem.type !== 'rod') ? heldItem : null;
     ws.send(JSON.stringify({
         type: 'move',
         x: game.player.x,
@@ -851,7 +1260,10 @@ function syncMultiplayer() {
         name: game.multiplayer.name,
         avatar: game.multiplayer.avatar,
         hasRod: Boolean(rod),
-        rodSprite: rod ? rod.sprite : null
+        rodSprite: rod ? rod.sprite : null,
+        heldSprite: heldFish ? heldFish.sprite : null,
+        heldWeight: heldFish ? heldFish.weight || 0 : 0,
+        heldRarity: heldFish ? heldFish.rarity || 'common' : null
     }));
 }
 
@@ -1145,6 +1557,7 @@ function updateInventoryDisplay() {
         });
         grid.appendChild(div);
     });
+    refreshMultiplayerUI();
 }
 
 function updateHotbar() {
@@ -1356,9 +1769,12 @@ function updateShopDisplay() {
     sellSection.innerHTML = '';
     
     game.inventory.forEach(item => {
-        if (item.price && item.sprite) {
+        if (item.price && item.sprite && item.type !== 'rod') {
             const div = document.createElement('div');
             div.className = 'shop-item';
+            if (isSellProtected(item)) {
+                div.classList.add('disabled');
+            }
             
             const iconDiv = document.createElement('div');
             iconDiv.className = 'shop-item-icon';
@@ -1391,7 +1807,9 @@ function updateShopDisplay() {
             
             div.appendChild(infoDiv);
             div.appendChild(priceDiv);
-            div.addEventListener('click', () => sellItem(item));
+            if (!isSellProtected(item)) {
+                div.addEventListener('click', () => sellItem(item));
+            }
             sellSection.appendChild(div);
         }
     });
@@ -1425,6 +1843,10 @@ function buyItem(item) {
 }
 
 function sellItem(item) {
+    if (isSellProtected(item)) {
+        showToast('This fish is protected by your sell filters.', 'info');
+        return;
+    }
     const price = item.price * (item.count || 1);
     game.money += price;
     
@@ -1894,6 +2316,21 @@ function drawRemotePlayers(timeSeconds) {
             ctx.moveTo(handX, handY);
             ctx.lineTo(rodEndX, rodEndY);
             ctx.stroke();
+        }
+
+        if (player.heldSprite) {
+            const fishItem = {
+                sprite: player.heldSprite,
+                weight: player.heldWeight || 0,
+                rarity: player.heldRarity || 'common'
+            };
+            const fishSize = getFishDisplaySize(fishItem, 18);
+            const fishCenterX = bodyX + bodyWidth + 8;
+            const fishCenterY = bodyY + 6;
+            drawFishSprite(ctx, fishItem.sprite, fishCenterX - fishSize / 2, fishCenterY - fishSize / 2, fishSize);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.font = 'bold 9px Arial';
+            ctx.fillText(`${fishItem.weight.toFixed(1)}kg`, fishCenterX - 12, fishCenterY - fishSize / 2 - 4);
         }
 
         if (player.name) {
