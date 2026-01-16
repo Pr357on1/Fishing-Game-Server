@@ -176,7 +176,16 @@ const game = {
         targetWidthBonus: 0,
         timeMultiplier: 1
     },
-    activeBuffs: []
+    activeBuffs: [],
+    effects: {
+        shakeTime: 0,
+        shakeAmp: 0,
+        invertTime: 0,
+        fogTime: 0,
+        glitchTime: 0,
+        jumpscareTime: 0,
+        popTime: 0
+    }
 };
 
 // Fish Types with Rarities (using pixel art sprites)
@@ -694,6 +703,7 @@ function connectMultiplayer() {
             refreshMultiplayerUI();
             syncRemotePlayers();
             updatePlayersOverlay();
+            updateDevPrankTargets();
         } else if (msg.type === 'gift') {
             if (msg.item) {
                 addToInventory(msg.item);
@@ -716,6 +726,8 @@ function connectMultiplayer() {
             game.multiplayer.tradePending = null;
         } else if (msg.type === 'dev-broadcast') {
             showToast(msg.text || 'Broadcast message', 'info');
+        } else if (msg.type === 'dev-prank') {
+            triggerPrank(msg.prank);
         } else if (msg.type === 'pong') {
             game.multiplayer.pingMs = typeof msg.pingMs === 'number' ? msg.pingMs : game.multiplayer.pingMs;
         }
@@ -800,6 +812,42 @@ function sendDevBroadcast(text) {
         text
     }));
     showToast('Broadcast sent.', 'success');
+}
+
+function updateDevPrankTargets() {
+    const select = document.getElementById('dev-prank-target');
+    if (!select) return;
+    const players = (game.multiplayer.players || []).filter(p => p.id !== game.multiplayer.id);
+    const current = select.value;
+    select.innerHTML = '';
+    const allOpt = document.createElement('option');
+    allOpt.value = 'all';
+    allOpt.textContent = 'Everyone';
+    select.appendChild(allOpt);
+    players.forEach((player) => {
+        const opt = document.createElement('option');
+        opt.value = player.id;
+        opt.textContent = player.name || player.id.slice(0, 6);
+        select.appendChild(opt);
+    });
+    if (current) {
+        select.value = current;
+    }
+}
+
+function sendDevPrank(prank) {
+    const ws = game.multiplayer.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        showToast('Not connected to server.', 'error');
+        return;
+    }
+    const target = document.getElementById('dev-prank-target');
+    const toId = target ? target.value : 'all';
+    ws.send(JSON.stringify({
+        type: 'dev-prank',
+        prank,
+        toId
+    }));
 }
 
 function initWeather() {
@@ -1616,6 +1664,7 @@ function setupEventListeners() {
     document.getElementById('dev-panel-open').addEventListener('click', () => {
         if (game.devMode) {
             togglePanel('dev-panel');
+            updateDevPrankTargets();
         }
     });
 
@@ -1668,6 +1717,34 @@ function setupEventListeners() {
             sendWeatherSet('rain');
         });
     }
+    const devPrankTarget = document.getElementById('dev-prank-target');
+    if (devPrankTarget) {
+        updateDevPrankTargets();
+    }
+    const devPrankShake = document.getElementById('dev-prank-shake');
+    const devPrankInvert = document.getElementById('dev-prank-invert');
+    const devPrankFog = document.getElementById('dev-prank-fog');
+    const devPrankGlitch = document.getElementById('dev-prank-glitch');
+    const devPrankJumpscare = document.getElementById('dev-prank-jumpscare');
+    const devPrankPop = document.getElementById('dev-prank-pop');
+    const prankButtons = [
+        [devPrankShake, 'shake'],
+        [devPrankInvert, 'invert'],
+        [devPrankFog, 'fog'],
+        [devPrankGlitch, 'glitch'],
+        [devPrankJumpscare, 'jumpscare'],
+        [devPrankPop, 'pop']
+    ];
+    prankButtons.forEach(([btn, prank]) => {
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            if (!game.devMode) {
+                showToast('Enable dev mode first.', 'error');
+                return;
+            }
+            sendDevPrank(prank);
+        });
+    });
     const devMoneyInput = document.getElementById('dev-money-input');
     const devMoneySet = document.getElementById('dev-money-set');
     if (devMoneyInput && devMoneySet) {
@@ -1931,6 +2008,9 @@ function updatePlayer() {
     if (game.player.onGround && Math.abs(game.player.vx) > 0.2) {
         game.camera.targetY += Math.sin(performance.now() / 160) * 4;
     }
+    const shake = getShakeOffset();
+    game.camera.targetX += shake.x;
+    game.camera.targetY += shake.y;
     
     game.camera.x += (game.camera.targetX - game.camera.x) * CAMERA_SMOOTH;
     game.camera.y += (game.camera.targetY - game.camera.y) * CAMERA_SMOOTH;
@@ -2443,6 +2523,100 @@ function updateBuffs() {
     game.activeBuffs = game.activeBuffs.filter(buff => buff.expiresAt > now);
     if (game.activeBuffs.length !== before) {
         recalculateBuffs();
+    }
+}
+
+function updatePranks(dt) {
+    const effects = game.effects;
+    if (!effects) return;
+    effects.shakeTime = Math.max(0, effects.shakeTime - dt);
+    effects.invertTime = Math.max(0, effects.invertTime - dt);
+    effects.fogTime = Math.max(0, effects.fogTime - dt);
+    effects.glitchTime = Math.max(0, effects.glitchTime - dt);
+    effects.jumpscareTime = Math.max(0, effects.jumpscareTime - dt);
+    effects.popTime = Math.max(0, effects.popTime - dt);
+}
+
+function triggerPrank(type) {
+    const effects = game.effects;
+    if (!effects) return;
+    switch (type) {
+        case 'shake':
+            effects.shakeTime = Math.max(effects.shakeTime, 1.5);
+            effects.shakeAmp = Math.max(effects.shakeAmp, 10);
+            break;
+        case 'invert':
+            effects.invertTime = Math.max(effects.invertTime, 2);
+            break;
+        case 'fog':
+            effects.fogTime = Math.max(effects.fogTime, 3);
+            break;
+        case 'glitch':
+            effects.glitchTime = Math.max(effects.glitchTime, 2.2);
+            break;
+        case 'jumpscare':
+            effects.jumpscareTime = Math.max(effects.jumpscareTime, 1.2);
+            break;
+        case 'pop':
+            effects.popTime = Math.max(effects.popTime, 2.5);
+            showToast('System error: reconnect required.', 'error');
+            break;
+        default:
+            break;
+    }
+}
+
+function getShakeOffset() {
+    if (!game.effects || game.effects.shakeTime <= 0) return { x: 0, y: 0 };
+    const strength = game.effects.shakeAmp || 8;
+    return {
+        x: (Math.random() - 0.5) * strength,
+        y: (Math.random() - 0.5) * strength
+    };
+}
+
+function drawPrankOverlays(ctx, now) {
+    const w = game.canvas.width;
+    const h = game.canvas.height;
+    const effects = game.effects;
+    if (!effects) return;
+
+    if (effects.invertTime > 0) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'difference';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+    }
+    if (effects.fogTime > 0) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(20, 24, 30, 0.35)';
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+    }
+    if (effects.glitchTime > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.25;
+        for (let i = 0; i < 6; i++) {
+            const sliceY = (i * 41 + now * 0.4) % h;
+            const sliceH = 8;
+            const offset = (Math.random() - 0.5) * 20;
+            ctx.drawImage(game.canvas, 0, sliceY, w, sliceH, offset, sliceY, w, sliceH);
+        }
+        ctx.restore();
+    }
+    if (effects.jumpscareTime > 0) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(120, 0, 0, 0.65)';
+        ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = '#ff3b3b';
+        ctx.beginPath();
+        ctx.arc(w / 2 - 60, h / 2 - 20, 26, 0, Math.PI * 2);
+        ctx.arc(w / 2 + 60, h / 2 - 20, 26, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#111';
+        ctx.fillRect(w / 2 - 90, h / 2 + 40, 180, 18);
+        ctx.restore();
     }
 }
 
@@ -4011,28 +4185,7 @@ function render() {
         waterPath();
         ctx.fill();
 
-        // Water pattern
-        const waterColors = ['#4E7FE0', '#3F6BD1', '#3860BA'];
-        const waterPixelSize = lowPerfWater ? 12 : 6;
-        const timeOffset = Math.floor(now / 140);
-        ctx.save();
-        waterPath();
-        ctx.clip();
-        if (!lowPerfWater) {
-            for (let x = waterStart; x < game.canvas.width; x += waterPixelSize) {
-                for (let y = waterY - 20; y < game.canvas.height; y += waterPixelSize) {
-                    const patternX = Math.floor((x + timeOffset) / waterPixelSize);
-                    const patternY = Math.floor((y - waterY) / waterPixelSize);
-                    const noise = (patternX * 73 + patternY * 37) % waterColors.length;
-                    ctx.fillStyle = waterColors[noise];
-                    ctx.fillRect(x, y, waterPixelSize, waterPixelSize);
-                }
-            }
-        } else {
-            ctx.fillStyle = waterColors[1];
-            ctx.fillRect(waterStart, waterY - 20, game.canvas.width - waterStart, game.canvas.height - waterY + 40);
-        }
-        ctx.restore();
+        // Water pattern (disabled)
 
         // Moving wave line at surface
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
@@ -4246,6 +4399,8 @@ function render() {
     ctx.fillStyle = '#f39c12';
     ctx.font = 'bold 20px Arial';
     ctx.fillText(`$${game.money}`, 25, 40);
+
+    drawPrankOverlays(ctx, now);
 }
 
 function drawCloud(x, y) {
@@ -4274,6 +4429,7 @@ function gameLoop() {
         game.fpsLastUpdate = now;
     }
     updateBuffs();
+    updatePranks(dt);
     updatePlayer();
     updateFishing(dt);
     updateWeather();

@@ -180,6 +180,21 @@ wss.on('connection', (ws) => {
         fromName: sender?.name || 'Dev'
       };
       broadcast(payload);
+    } else if (msg.type === 'dev-prank') {
+      const sender = clients.get(ws);
+      const payload = {
+        type: 'dev-prank',
+        prank: msg.prank,
+        fromName: sender?.name || 'Dev'
+      };
+      if (msg.toId === 'all') {
+        broadcast(payload);
+      } else {
+        const target = findClientById(msg.toId);
+        if (target) {
+          target.send(JSON.stringify(payload));
+        }
+      }
     } else if (msg.type === 'gift' || msg.type === 'trade-request' || msg.type === 'trade-accept' || msg.type === 'trade-decline') {
       const target = findClientById(msg.toId);
       if (!target) return;
