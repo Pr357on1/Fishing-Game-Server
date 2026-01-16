@@ -96,20 +96,22 @@ const game = {
         indicatorSpeed: 5,
         targetPos: 0,
         targetWidth: 30,
-        timer: 12,
+        timer: 30,
         difficulty: 0.3,
         progress: 0,
         fishPos: 50,
         fishVel: 0,
-        progressGain: 0.02,
-        progressLoss: 0.01,
+        progressGain: 0.012,
+        progressLoss: 0.006,
         fishSpeedMultiplier: 1,
         rodStats: null,
         castActive: false,
         castX: 0,
         castY: 0,
         castInWater: false,
-        catchDisplay: null
+        catchDisplay: null,
+        stage: 1,
+        stagesTotal: 1
     },
     multiplayer: {
         ws: null,
@@ -200,6 +202,7 @@ const DEFAULT_ROD_STATS = {
     progressGainMultiplier: 1,
     progressLossMultiplier: 1,
     fishSpeedMultiplier: 1,
+    timeMultiplier: 1,
     luck: 0
 };
 
@@ -221,13 +224,14 @@ const SHOP_ITEMS = [
         type: 'rod',
         upgrade: 2,
         aura: 'advanced',
-        buffs: ['Catch window +20%', 'Fish movement -15%', 'Rare chance +3%'],
+        buffs: ['Catch window +20%', 'Fish movement -15%', 'Rare chance +3%', 'Time +15%'],
         stats: {
             targetWidthBonus: 6,
             indicatorSpeedMultiplier: 0.92,
             progressGainMultiplier: 1.15,
             progressLossMultiplier: 0.85,
             fishSpeedMultiplier: 0.85,
+            timeMultiplier: 1.15,
             luck: 0.05
         }
     },
@@ -238,13 +242,14 @@ const SHOP_ITEMS = [
         type: 'rod',
         upgrade: 3,
         aura: 'master',
-        buffs: ['Catch window +35%', 'Fish movement -30%', 'Rare chance +7%', 'Catch progress +25%'],
+        buffs: ['Catch window +35%', 'Fish movement -30%', 'Rare chance +7%', 'Catch progress +25%', 'Time +30%'],
         stats: {
             targetWidthBonus: 10,
             indicatorSpeedMultiplier: 0.85,
             progressGainMultiplier: 1.25,
             progressLossMultiplier: 0.7,
             fishSpeedMultiplier: 0.7,
+            timeMultiplier: 1.3,
             luck: 0.12
         }
     },
@@ -327,7 +332,7 @@ const DEFAULT_SELL_SETTINGS = {
         uncommon: false,
         rare: false,
         epic: false,
-        legendary: true
+        legendary: false
     },
     keepBigEnabled: true,
     keepBigKg: 100,
@@ -1564,19 +1569,22 @@ function startFishing() {
 
     game.fishing.active = true;
     const rodStats = getRodStats(getEquippedRod());
+    const baseTimer = 30;
     game.fishing.indicatorPos = 50;
     game.fishing.targetPos = 50 + (Math.random() - 0.5) * 140;
     game.fishing.targetPos = Math.max(20, Math.min(80, game.fishing.targetPos));
-    game.fishing.timer = 12;
+    game.fishing.timer = baseTimer * (rodStats.timeMultiplier || 1);
     game.fishing.indicatorSpeed = (2.5 + Math.random() * 1.5) * rodStats.indicatorSpeedMultiplier;
     game.fishing.targetWidth = 30 + rodStats.targetWidthBonus;
-    game.fishing.progressGain = 0.02 * rodStats.progressGainMultiplier;
-    game.fishing.progressLoss = 0.01 * rodStats.progressLossMultiplier;
+    game.fishing.progressGain = 0.012 * rodStats.progressGainMultiplier;
+    game.fishing.progressLoss = 0.006 * rodStats.progressLossMultiplier;
     game.fishing.fishSpeedMultiplier = rodStats.fishSpeedMultiplier;
     game.fishing.rodStats = rodStats;
     game.fishing.progress = 0;
     game.fishing.fishPos = 50;
     game.fishing.fishVel = 0;
+    game.fishing.stage = 1;
+    game.fishing.stagesTotal = 3;
     game.fishing.castActive = true;
     game.fishing.castX = castX;
     game.fishing.castY = game.player.y + 60;
@@ -1630,8 +1638,8 @@ function updateFishing() {
         game.fishing.castY = obstacleTop - 2;
     }
 
-    const gain = game.fishing.progressGain ?? 0.02;
-    const loss = game.fishing.progressLoss ?? 0.01;
+    const gain = game.fishing.progressGain ?? 0.012;
+    const loss = game.fishing.progressLoss ?? 0.006;
     if (inTarget && game.fishing.castInWater) {
         game.fishing.progress = Math.min(1, game.fishing.progress + gain);
     } else {
@@ -1639,8 +1647,15 @@ function updateFishing() {
     }
 
     if (game.fishing.progress >= 1) {
-        endFishing(true);
-        return;
+        if (game.fishing.stage < game.fishing.stagesTotal) {
+            game.fishing.stage += 1;
+            game.fishing.progress = 0;
+            game.fishing.targetWidth = Math.max(12, game.fishing.targetWidth - 3);
+            game.fishing.fishSpeedMultiplier = (game.fishing.fishSpeedMultiplier || 1) * 1.12;
+        } else {
+            endFishing(true);
+            return;
+        }
     }
 
     // Update timer
@@ -1670,7 +1685,7 @@ function updateFishingDisplay() {
         const timeLeft = Math.max(0, Math.ceil(game.fishing.timer));
         const progress = Math.round(game.fishing.progress * 100);
         const waterText = game.fishing.castInWater ? 'In Water' : 'No Water';
-        timer.textContent = `${timeLeft}s • Reel ${progress}% • ${waterText}`;
+        timer.textContent = `${timeLeft}s | Stage ${game.fishing.stage}/${game.fishing.stagesTotal} | Reel ${progress}% | ${waterText}`;
     }
 }
 
