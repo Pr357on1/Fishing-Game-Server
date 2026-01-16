@@ -1,10 +1,31 @@
 import { WebSocketServer } from 'ws';
+import fs from 'fs';
+import path from 'path';
 
 const PORT = process.env.PORT || 8080;
 
 const wss = new WebSocketServer({ port: PORT });
 
 const clients = new Map();
+const dataDir = path.join(process.cwd(), 'data');
+const dataFile = path.join(dataDir, 'players.json');
+
+function loadStore() {
+  try {
+    if (!fs.existsSync(dataFile)) return {};
+    const raw = fs.readFileSync(dataFile, 'utf-8');
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+function saveStore(store) {
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+  fs.writeFileSync(dataFile, JSON.stringify(store, null, 2));
+}
 
 function findClientById(id) {
   for (const [client, data] of clients.entries()) {
@@ -39,7 +60,47 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    if (msg.type === 'move') {
+    if (msg.type === 'auth') {
+      const name = String(msg.name || '').slice(0, 16);
+      const passcode = String(msg.passcode || '');
+      if (!name || !passcode) {
+        ws.send(JSON.stringify({ type: 'auth-error', message: 'Name and passcode required.' }));
+        return;
+      }
+      const store = loadStore();
+      const record = store[name];
+      if (record) {
+        if (record.passcode !== passcode) {
+          ws.send(JSON.stringify({ type: 'auth-error', message: 'Passcode incorrect.' }));
+          return;
+        }
+        const player = clients.get(ws);
+        if (player) {
+          player.name = name;
+          player.avatar = msg.avatar || player.avatar;
+        }
+        ws.send(JSON.stringify({ type: 'auth-ok', state: record.state || null }));
+      } else {
+        store[name] = { passcode, state: null };
+        saveStore(store);
+        const player = clients.get(ws);
+        if (player) {
+          player.name = name;
+          player.avatar = msg.avatar || player.avatar;
+        }
+        ws.send(JSON.stringify({ type: 'auth-new' }));
+      }
+    } else if (msg.type === 'save-state') {
+      const state = msg.state || {};
+      const name = state.name;
+      const passcode = state.passcode;
+      if (!name || !passcode) return;
+      const store = loadStore();
+      const record = store[name];
+      if (!record || record.passcode !== passcode) return;
+      store[name] = { passcode, state };
+      saveStore(store);
+    } else if (msg.type === 'move') {
       const player = clients.get(ws);
       if (!player) return;
       player.x = msg.x;

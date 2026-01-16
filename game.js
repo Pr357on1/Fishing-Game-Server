@@ -55,6 +55,7 @@ const game = {
     hotbar: [null, null, null, null, null],
     selectedSlot: 0,
     money: 100,
+    nextItemId: 0,
     sellSettings: null,
     devMode: false,
     palmTrees: [],
@@ -118,6 +119,7 @@ const game = {
         reconnectTimer: null,
         name: '',
         avatar: AVATARS[0].id,
+        passcode: '',
         ready: false,
         mode: 'gift',
         selectedPlayerId: null,
@@ -126,7 +128,11 @@ const game = {
         tradePending: null,
         tradeRespond: null,
         interactCooldown: 0,
-        remotePlayers: {}
+        remotePlayers: {},
+        authed: false,
+        saveDirty: false,
+        lastSave: 0,
+        hasLoadedState: false
     }
 };
 
@@ -307,12 +313,6 @@ function init() {
     // Multiplayer UI
     initMultiplayerUI();
 
-    // Starter gear
-    const starterRod = { ...SHOP_ITEMS.find(item => item.type === 'rod' && item.sprite === 'rodBasic'), count: 1 };
-    if (starterRod && starterRod.sprite) {
-        game.inventory.push(starterRod);
-        game.hotbar[0] = starterRod;
-    }
     
     // Initialize hotbar selection
     selectHotbarSlot(0);
@@ -352,6 +352,7 @@ function loadSellSettings() {
 
 function saveSellSettings() {
     localStorage.setItem('sellSettings', JSON.stringify(game.sellSettings));
+    markSaveDirty();
 }
 
 function initSellSettings() {
@@ -365,6 +366,7 @@ function initSellSettings() {
             pill.className = 'sell-rarity-pill';
             pill.textContent = rarity;
             pill.style.background = getRarityColor(rarity);
+            pill.dataset.rarity = rarity;
             pill.classList.toggle('selected', game.sellSettings.keepRarities[rarity]);
             pill.addEventListener('click', () => {
                 game.sellSettings.keepRarities[rarity] = !game.sellSettings.keepRarities[rarity];
@@ -414,6 +416,25 @@ function initSellSettings() {
     }
 }
 
+function refreshSellSettingsUI() {
+    const rarityContainer = document.getElementById('sell-rarity-options');
+    if (rarityContainer) {
+        rarityContainer.querySelectorAll('.sell-rarity-pill').forEach((pill) => {
+            const rarity = pill.dataset.rarity;
+            if (!rarity) return;
+            pill.classList.toggle('selected', Boolean(game.sellSettings?.keepRarities?.[rarity]));
+        });
+    }
+    const keepBigEnabled = document.getElementById('keep-big-enabled');
+    const keepBigKg = document.getElementById('keep-big-kg');
+    const keepSmallEnabled = document.getElementById('keep-small-enabled');
+    const keepSmallKg = document.getElementById('keep-small-kg');
+    if (keepBigEnabled) keepBigEnabled.checked = Boolean(game.sellSettings?.keepBigEnabled);
+    if (keepBigKg) keepBigKg.value = game.sellSettings?.keepBigKg ?? DEFAULT_SELL_SETTINGS.keepBigKg;
+    if (keepSmallEnabled) keepSmallEnabled.checked = Boolean(game.sellSettings?.keepSmallEnabled);
+    if (keepSmallKg) keepSmallKg.value = game.sellSettings?.keepSmallKg ?? DEFAULT_SELL_SETTINGS.keepSmallKg;
+}
+
 function isSellProtected(item) {
     if (!item || !item.weight) return false;
     const settings = game.sellSettings || DEFAULT_SELL_SETTINGS;
@@ -450,6 +471,7 @@ function sellAllEligible() {
     } else {
         showToast('No eligible fish to sell.', 'info');
     }
+    markSaveDirty();
     updateHotbar();
     updateShopDisplay();
 }
@@ -457,14 +479,17 @@ function sellAllEligible() {
 function initPlayerSetup() {
     const panel = document.getElementById('player-setup');
     const nameInput = document.getElementById('player-name');
+    const passInput = document.getElementById('player-passcode');
     const avatarContainer = document.getElementById('avatar-options');
     const startBtn = document.getElementById('player-start');
-    if (!panel || !nameInput || !avatarContainer || !startBtn) return;
+    if (!panel || !nameInput || !passInput || !avatarContainer || !startBtn) return;
 
     const storedName = localStorage.getItem('playerName');
     const storedAvatar = localStorage.getItem('playerAvatar');
+    const storedPasscode = localStorage.getItem('playerPasscode');
     if (storedName) nameInput.value = storedName;
     if (storedAvatar) game.multiplayer.avatar = storedAvatar;
+    if (storedPasscode) passInput.value = storedPasscode;
 
     avatarContainer.innerHTML = '';
     AVATARS.forEach((avatar) => {
@@ -487,11 +512,18 @@ function initPlayerSetup() {
 
     startBtn.addEventListener('click', () => {
         const name = nameInput.value.trim() || 'Guest';
+        const passcode = passInput.value.trim();
+        if (!passcode) {
+            showToast('Passcode required.', 'error');
+            return;
+        }
         game.multiplayer.name = name.slice(0, 16);
+        game.multiplayer.passcode = passcode;
         localStorage.setItem('playerName', game.multiplayer.name);
         localStorage.setItem('playerAvatar', game.multiplayer.avatar);
-        panel.classList.add('hidden');
+        localStorage.setItem('playerPasscode', game.multiplayer.passcode);
         game.multiplayer.ready = true;
+        sendAuth();
     });
 }
 
@@ -510,6 +542,9 @@ function connectMultiplayer() {
 
     ws.onopen = () => {
         showToast('Connected to server', 'success');
+        if (game.multiplayer.ready) {
+            sendAuth();
+        }
     };
 
     ws.onmessage = (event) => {
@@ -521,6 +556,21 @@ function connectMultiplayer() {
         }
         if (msg.type === 'welcome') {
             game.multiplayer.id = msg.id;
+        } else if (msg.type === 'auth-ok') {
+            game.multiplayer.authed = true;
+            applySavedState(msg.state);
+            const panel = document.getElementById('player-setup');
+            if (panel) panel.classList.add('hidden');
+            showToast('Loaded your saved player.', 'success');
+        } else if (msg.type === 'auth-new') {
+            game.multiplayer.authed = true;
+            applyDefaultState();
+            const panel = document.getElementById('player-setup');
+            if (panel) panel.classList.add('hidden');
+            showToast('New player created.', 'success');
+        } else if (msg.type === 'auth-error') {
+            game.multiplayer.authed = false;
+            showToast(msg.message || 'Auth failed.', 'error');
         } else if (msg.type === 'players') {
             game.multiplayer.players = msg.players || [];
             refreshMultiplayerUI();
@@ -562,6 +612,18 @@ function connectMultiplayer() {
     ws.onerror = () => {
         ws.close();
     };
+}
+
+function sendAuth() {
+    const ws = game.multiplayer.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!game.multiplayer.name || !game.multiplayer.passcode) return;
+    ws.send(JSON.stringify({
+        type: 'auth',
+        name: game.multiplayer.name,
+        passcode: game.multiplayer.passcode,
+        avatar: game.multiplayer.avatar
+    }));
 }
 
 function syncRemotePlayers() {
@@ -613,6 +675,118 @@ function sendDevBroadcast(text) {
         text
     }));
     showToast('Broadcast sent.', 'success');
+}
+
+function createItemId() {
+    game.nextItemId += 1;
+    return `itm_${game.nextItemId}`;
+}
+
+function ensureItemId(item) {
+    if (!item.uid) {
+        item.uid = createItemId();
+    }
+    return item;
+}
+
+function applyDefaultState() {
+    if (game.multiplayer.hasLoadedState) return;
+    const starterRodItem = SHOP_ITEMS.find(item => item.type === 'rod' && item.sprite === 'rodBasic');
+    if (starterRodItem) {
+        const starterRod = ensureItemId({ ...starterRodItem, count: 1 });
+        game.inventory = [starterRod];
+        game.hotbar = [starterRod, null, null, null, null];
+        game.selectedSlot = 0;
+    }
+    game.money = 100;
+    game.multiplayer.hasLoadedState = true;
+    updateHotbar();
+    updateInventoryDisplay();
+    markSaveDirty(true);
+}
+
+function applySavedState(state) {
+    if (!state) {
+        applyDefaultState();
+        return;
+    }
+    game.money = typeof state.money === 'number' ? state.money : game.money;
+    game.player.x = typeof state.x === 'number' ? state.x : game.player.x;
+    game.player.y = typeof state.y === 'number' ? state.y : game.player.y;
+    game.player.renderX = game.player.x;
+    game.player.renderY = game.player.y;
+    game.devMode = Boolean(state.devMode);
+    game.nextItemId = typeof state.nextItemId === 'number' ? state.nextItemId : 0;
+    if (state.sellSettings) {
+        game.sellSettings = {
+            ...DEFAULT_SELL_SETTINGS,
+            ...state.sellSettings,
+            keepRarities: {
+                ...DEFAULT_SELL_SETTINGS.keepRarities,
+                ...(state.sellSettings.keepRarities || {})
+            }
+        };
+        localStorage.setItem('sellSettings', JSON.stringify(game.sellSettings));
+        refreshSellSettingsUI();
+    }
+
+    const inventory = Array.isArray(state.inventory) ? state.inventory : [];
+    game.inventory = inventory.map((item) => {
+        const restored = { ...item };
+        ensureItemId(restored);
+        return restored;
+    });
+
+    const hotbarIds = Array.isArray(state.hotbarIds) ? state.hotbarIds : [];
+    game.hotbar = [null, null, null, null, null];
+    hotbarIds.forEach((uid, index) => {
+        const match = game.inventory.find(item => item.uid === uid);
+        if (match) {
+            game.hotbar[index] = match;
+        }
+    });
+    game.selectedSlot = typeof state.selectedSlot === 'number' ? state.selectedSlot : 0;
+    selectHotbarSlot(game.selectedSlot);
+    game.multiplayer.hasLoadedState = true;
+    updateHotbar();
+    updateInventoryDisplay();
+}
+
+function markSaveDirty(force = false) {
+    if (!game.multiplayer.authed) return;
+    game.multiplayer.saveDirty = true;
+    if (force) {
+        game.multiplayer.lastSave = 0;
+    }
+}
+
+function sendSaveState(force = false) {
+    const ws = game.multiplayer.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!game.multiplayer.authed) return;
+    if (!game.multiplayer.saveDirty && !force) return;
+    const now = performance.now();
+    if (!force && now - game.multiplayer.lastSave < 3000) return;
+    const state = {
+        name: game.multiplayer.name,
+        passcode: game.multiplayer.passcode,
+        avatar: game.multiplayer.avatar,
+        money: game.money,
+        x: game.player.x,
+        y: game.player.y,
+        devMode: game.devMode,
+        nextItemId: game.nextItemId,
+        sellSettings: game.sellSettings,
+        inventory: game.inventory.map(serializeItem),
+        hotbarIds: game.hotbar.map(item => item ? item.uid : null),
+        selectedSlot: game.selectedSlot
+    };
+    ws.send(JSON.stringify({
+        type: 'save-state',
+        state
+    }));
+    game.multiplayer.saveDirty = false;
+    game.multiplayer.lastSave = now;
 }
 
 function initMultiplayerUI() {
@@ -723,7 +897,8 @@ function serializeItem(item) {
         weight: item.weight || 0,
         price: item.price || 0,
         type: item.type || null,
-        count: item.count || 1
+        count: item.count || 1,
+        uid: item.uid || null
     };
 }
 
@@ -743,6 +918,7 @@ function removeMatchingItem(itemData) {
             game.inventory.splice(index, 1);
         }
     }
+    markSaveDirty();
     updateHotbar();
 }
 
@@ -1196,6 +1372,7 @@ function selectHotbarSlot(index) {
     document.querySelectorAll('.hotbar-slot').forEach((slot, i) => {
         slot.classList.toggle('selected', i === index);
     });
+    markSaveDirty();
 }
 
 // Player Movement
@@ -1313,6 +1490,7 @@ function updatePlayer() {
     syncMultiplayer();
     updateRemotePlayers();
     handlePlayerInteractions();
+    sendSaveState();
 }
 
 function updateRemotePlayers() {
@@ -1608,15 +1786,18 @@ function drawFishSprite(ctx, spriteType, x, y, size) {
 // Inventory System
 function addToInventory(item) {
     if (item.weight) {
-        game.inventory.push({ ...item, count: 1 });
+        const entry = ensureItemId({ ...item, count: 1 });
+        game.inventory.push(entry);
     } else {
         const existing = game.inventory.find(i => i.name === item.name);
         if (existing) {
             existing.count = (existing.count || 1) + 1;
         } else {
-            game.inventory.push({ ...item, count: 1 });
+            const entry = ensureItemId({ ...item, count: 1 });
+            game.inventory.push(entry);
         }
     }
+    markSaveDirty();
     updateHotbar();
 }
 
@@ -1660,6 +1841,7 @@ function updateInventoryDisplay() {
             const slot = game.selectedSlot;
             game.hotbar[slot] = item;
             updateHotbar();
+            markSaveDirty();
         });
         grid.appendChild(div);
     });
@@ -1939,10 +2121,11 @@ function buyItem(item) {
                     game.hotbar[hotbarIndex] = null;
                 }
             }
-            const newRod = { ...item, count: 1 };
+            const newRod = ensureItemId({ ...item, count: 1 });
             game.inventory.push(newRod);
             game.hotbar[0] = newRod;
             game.selectedSlot = 0;
+            markSaveDirty();
             updateHotbar();
         } else {
             addToInventory(item);
@@ -1960,6 +2143,7 @@ function sellItem(item) {
     }
     const price = item.price * (item.count || 1);
     game.money += price;
+    markSaveDirty();
     
     const index = game.inventory.indexOf(item);
     if (index > -1) {
