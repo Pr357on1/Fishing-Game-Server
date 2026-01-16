@@ -588,7 +588,7 @@ function connectMultiplayer() {
         if (msg.type === 'welcome') {
             game.multiplayer.id = msg.id;
             if (msg.weather) {
-                setWeather(msg.weather);
+                setWeather(msg.weather, msg.drops || null);
             }
         } else if (msg.type === 'auth-ok') {
             game.multiplayer.authed = true;
@@ -606,7 +606,7 @@ function connectMultiplayer() {
             game.multiplayer.authed = false;
             showToast(msg.message || 'Auth failed.', 'error');
         } else if (msg.type === 'weather') {
-            setWeather(msg.weather);
+            setWeather(msg.weather, msg.drops || null);
         } else if (msg.type === 'players') {
             game.multiplayer.players = msg.players || [];
             refreshMultiplayerUI();
@@ -716,23 +716,19 @@ function sendDevBroadcast(text) {
 function initWeather() {
     const now = performance.now();
     game.weather.nextToggleAt = now + WEATHER_TOGGLE_MS;
-    game.weather.drops = [];
+    game.weather.drops = generateLocalRainDrops();
     game.weather.splashes = [];
-    for (let i = 0; i < 140; i++) {
-        game.weather.drops.push({
-            x: Math.random() * CANVAS_WIDTH,
-            y: Math.random() * CANVAS_HEIGHT,
-            speed: 6 + Math.random() * 6,
-            length: 10 + Math.random() * 12,
-            alpha: 0.35 + Math.random() * 0.3
-        });
-    }
 }
 
-function setWeather(type) {
+function setWeather(type, drops = null) {
     if (!type || !['sunny', 'rain'].includes(type)) return;
     game.weather.type = type;
     game.weather.nextToggleAt = performance.now() + WEATHER_TOGGLE_MS;
+    if (Array.isArray(drops) && drops.length) {
+        game.weather.drops = drops.map((drop) => ({ ...drop }));
+    } else if (type === 'rain') {
+        game.weather.drops = generateLocalRainDrops();
+    }
 }
 
 function sendWeatherSet(type) {
@@ -755,6 +751,42 @@ function updateWeather() {
         const next = game.weather.type === 'rain' ? 'sunny' : 'rain';
         setWeather(next);
     }
+}
+
+function getRainBounds() {
+    const shoreX = game.island.x + game.island.width;
+    return {
+        minX: game.island.x - 200,
+        maxX: shoreX + 900,
+        minY: -200,
+        maxY: getWaterLevel() + 600
+    };
+}
+
+function generateLocalRainDrops() {
+    const bounds = getRainBounds();
+    const drops = [];
+    for (let i = 0; i < 140; i++) {
+        drops.push({
+            x: bounds.minX + Math.random() * (bounds.maxX - bounds.minX),
+            y: bounds.minY + Math.random() * (bounds.maxY - bounds.minY),
+            speed: 3 + Math.random() * 4,
+            length: 10 + Math.random() * 10,
+            alpha: 0.35 + Math.random() * 0.3
+        });
+    }
+    return drops;
+}
+
+function pushSplash(type, x, y, size = 1) {
+    game.weather.splashes.push({
+        x,
+        y,
+        life: 0.4,
+        ttl: 0.4,
+        type,
+        size
+    });
 }
 
 function createItemId() {
@@ -3334,10 +3366,9 @@ function drawShopKeeper() {
 function drawRain(ctx, now) {
     if (game.weather.type !== 'rain') return;
     const dt = game.frameDelta || 0.016;
+    const bounds = getRainBounds();
     const viewLeft = game.camera.x - 120;
-    const viewTop = game.camera.y - 120;
     const viewRight = game.camera.x + game.canvas.width + 120;
-    const viewBottom = game.camera.y + game.canvas.height + 120;
     const shoreX = game.island.x + game.island.width;
     const waterY = getWaterLevel();
 
@@ -3347,10 +3378,11 @@ function drawRain(ctx, now) {
         const alpha = Math.max(0, splash.life / splash.ttl);
         ctx.save();
         if (splash.type === 'water') {
-            ctx.strokeStyle = `rgba(210, 235, 255, ${0.5 * alpha})`;
+            ctx.strokeStyle = `rgba(210, 235, 255, ${0.6 * alpha})`;
             ctx.lineWidth = 1.5;
             ctx.beginPath();
-            ctx.ellipse(splash.x, splash.y, 6 + (1 - alpha) * 6, 2 + (1 - alpha) * 2, 0, 0, Math.PI * 2);
+            const ripple = (6 + (1 - alpha) * 8) * splash.size;
+            ctx.ellipse(splash.x, splash.y, ripple, 2 + (1 - alpha) * 2, 0, 0, Math.PI * 2);
             ctx.stroke();
         } else if (splash.type === 'leaf') {
             ctx.strokeStyle = `rgba(200, 235, 210, ${0.6 * alpha})`;
@@ -3359,10 +3391,23 @@ function drawRain(ctx, now) {
             ctx.moveTo(splash.x - 2, splash.y - 2);
             ctx.lineTo(splash.x + 2, splash.y + 2);
             ctx.stroke();
-        } else {
-            ctx.fillStyle = `rgba(210, 235, 255, ${0.4 * alpha})`;
+        } else if (splash.type === 'spray') {
+            ctx.strokeStyle = `rgba(210, 235, 255, ${0.5 * alpha})`;
+            ctx.lineWidth = 1;
             ctx.beginPath();
-            ctx.arc(splash.x, splash.y, 2 + (1 - alpha) * 2, 0, Math.PI * 2);
+            ctx.moveTo(splash.x, splash.y - 4 * splash.size);
+            ctx.lineTo(splash.x, splash.y + 2 * splash.size);
+            ctx.stroke();
+        } else if (splash.type === 'ground') {
+            ctx.strokeStyle = `rgba(210, 235, 255, ${0.45 * alpha})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(splash.x, splash.y, 2 + (1 - alpha) * 2 * splash.size, 0, Math.PI * 2);
+            ctx.stroke();
+        } else {
+            ctx.fillStyle = `rgba(210, 235, 255, ${0.45 * alpha})`;
+            ctx.beginPath();
+            ctx.arc(splash.x, splash.y, 2 + (1 - alpha) * 2 * splash.size, 0, Math.PI * 2);
             ctx.fill();
         }
         ctx.restore();
@@ -3402,25 +3447,28 @@ function drawRain(ctx, now) {
         }
 
         if (hitType) {
-            game.weather.splashes.push({
-                x: drop.x,
-                y: hitPosY,
-                life: 0.35,
-                ttl: 0.35,
-                type: hitType
-            });
-            drop.y = viewTop - Math.random() * 120;
-            drop.x = viewLeft + Math.random() * (viewRight - viewLeft);
+            if (hitType === 'water') {
+                pushSplash('water', drop.x, hitPosY, 1);
+                pushSplash('water', drop.x + 3, hitPosY + 1, 0.7);
+                pushSplash('spray', drop.x, hitPosY - 2, 0.6);
+            } else if (hitType === 'ground') {
+                pushSplash('ground', drop.x, hitPosY, 1);
+                pushSplash('ground', drop.x + 2, hitPosY + 1, 0.7);
+            } else if (hitType === 'leaf') {
+                pushSplash('leaf', drop.x, hitPosY, 1);
+            }
+            drop.y = bounds.minY - Math.random() * 120;
+            drop.x = bounds.minX + Math.random() * (bounds.maxX - bounds.minX);
             return;
         }
 
         drop.y = nextY;
-        if (drop.y > viewBottom) {
-            drop.y = viewTop - Math.random() * 120;
-            drop.x = viewLeft + Math.random() * (viewRight - viewLeft);
+        if (drop.y > bounds.maxY) {
+            drop.y = bounds.minY - Math.random() * 120;
+            drop.x = bounds.minX + Math.random() * (bounds.maxX - bounds.minX);
         }
-        if (drop.x < viewLeft || drop.x > viewRight) {
-            drop.x = viewLeft + Math.random() * (viewRight - viewLeft);
+        if (drop.x < bounds.minX || drop.x > bounds.maxX) {
+            drop.x = bounds.minX + Math.random() * (bounds.maxX - bounds.minX);
         }
         ctx.strokeStyle = `rgba(210, 225, 245, ${drop.alpha})`;
         ctx.beginPath();

@@ -9,7 +9,14 @@ const wss = new WebSocketServer({ port: PORT });
 const clients = new Map();
 const dataDir = path.join(process.cwd(), 'data');
 const dataFile = path.join(dataDir, 'players.json');
-const weatherState = { type: 'sunny' };
+const RAIN_BOUNDS = {
+  minX: -120,
+  maxX: 2540,
+  minY: -200,
+  maxY: 1400
+};
+const RAIN_DROPS_COUNT = 140;
+const weatherState = { type: 'sunny', drops: [] };
 
 function broadcast(payload) {
   const message = JSON.stringify(payload);
@@ -18,10 +25,25 @@ function broadcast(payload) {
   }
 }
 
+function generateRainDrops() {
+  const drops = [];
+  for (let i = 0; i < RAIN_DROPS_COUNT; i++) {
+    drops.push({
+      x: RAIN_BOUNDS.minX + Math.random() * (RAIN_BOUNDS.maxX - RAIN_BOUNDS.minX),
+      y: RAIN_BOUNDS.minY + Math.random() * (RAIN_BOUNDS.maxY - RAIN_BOUNDS.minY),
+      speed: 3 + Math.random() * 4,
+      length: 10 + Math.random() * 10,
+      alpha: 0.35 + Math.random() * 0.3
+    });
+  }
+  return drops;
+}
+
 function setWeather(type) {
   if (!['sunny', 'rain'].includes(type)) return;
   weatherState.type = type;
-  broadcast({ type: 'weather', weather: type });
+  weatherState.drops = type === 'rain' ? generateRainDrops() : [];
+  broadcast({ type: 'weather', weather: type, drops: weatherState.drops });
 }
 
 setInterval(() => {
@@ -69,7 +91,7 @@ wss.on('connection', (ws) => {
     heldRarity: null
   });
 
-  ws.send(JSON.stringify({ type: 'welcome', id, weather: weatherState.type }));
+  ws.send(JSON.stringify({ type: 'welcome', id, weather: weatherState.type, drops: weatherState.drops }));
 
   ws.on('message', (data) => {
     let msg;
