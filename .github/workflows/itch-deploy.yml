@@ -13,28 +13,10 @@ jobs:
 
       - name: Install butler
         run: |
-          python - <<'PY'
-          import json, urllib.request, os, sys
-          url = "https://api.github.com/repos/itchio/butler/releases/latest"
-          data = json.loads(urllib.request.urlopen(url).read().decode("utf-8"))
-          assets = data.get("assets", [])
-          def pick(ext):
-              for a in assets:
-                  name = a.get("name", "")
-                  if "linux-amd64" in name and name.endswith(ext):
-                      return a
-              return None
-          asset = pick(".zip") or pick(".tar.gz")
-          if not asset:
-              print("No linux-amd64 asset found. Assets:", [a.get("name") for a in assets])
-              sys.exit(1)
-          download = asset["browser_download_url"]
-          out = "butler.zip" if asset["name"].endswith(".zip") else "butler.tar.gz"
-          urllib.request.urlretrieve(download, out)
-          print("Downloaded", out)
-          PY
-          if [ -f butler.zip ]; then unzip -q butler.zip; fi
-          if [ -f butler.tar.gz ]; then tar -xzf butler.tar.gz; fi
+          BUTLER_VERSION="v15.24.0"
+          curl -L -o butler.zip "https://github.com/itchio/butler/releases/download/${BUTLER_VERSION}/butler-linux-amd64.zip" || \
+          curl -L -o butler.zip "https://broth.itch.ovh/butler/linux-amd64/${BUTLER_VERSION}/archive/default"
+          unzip -q butler.zip || (tar -xzf butler.zip || true)
           chmod +x butler
 
       - name: Push to itch.io
