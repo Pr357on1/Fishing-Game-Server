@@ -165,6 +165,7 @@ const game = {
     fps: 0,
     fpsSmoothed: 60,
     fpsLastUpdate: 0,
+    renderQuality: 'low',
     tutorial: {
         active: false,
         stepIndex: 0
@@ -907,6 +908,69 @@ function getRainBounds() {
         minY: -200,
         maxY: getWaterLevel() + 600
     };
+}
+
+function getRenderQualityConfig() {
+    const quality = (game.renderQuality || 'high').toLowerCase();
+    const isSwimming = game.player.swimming;
+    const config = {
+        waterPattern: true,
+        waterPixelSize: 6,
+        waveStep: 8,
+        waveAmp: 3,
+        bandCount: 3,
+        cloudCount: 5,
+        rainDropStep: 1,
+        splashMax: 180,
+        rippleCount: 18,
+        groundDrops: 14
+    };
+
+    if (quality === 'low') {
+        config.waterPattern = false;
+        config.waterPixelSize = 14;
+        config.waveStep = 20;
+        config.waveAmp = 2;
+        config.bandCount = 1;
+        config.cloudCount = 2;
+        config.rainDropStep = 4;
+        config.splashMax = 60;
+        config.rippleCount = 6;
+        config.groundDrops = 6;
+    } else if (quality === 'medium') {
+        config.waterPattern = false;
+        config.waterPixelSize = 10;
+        config.waveStep = 14;
+        config.waveAmp = 2;
+        config.bandCount = 2;
+        config.cloudCount = 3;
+        config.rainDropStep = 2;
+        config.splashMax = 120;
+        config.rippleCount = 10;
+        config.groundDrops = 10;
+    } else if (quality === 'ultra') {
+        config.waterPattern = true;
+        config.waterPixelSize = 5;
+        config.waveStep = 6;
+        config.waveAmp = 4;
+        config.bandCount = 4;
+        config.cloudCount = 6;
+        config.rainDropStep = 1;
+        config.splashMax = 220;
+        config.rippleCount = 22;
+        config.groundDrops = 16;
+    }
+
+    if (isSwimming) {
+        config.rainDropStep = Math.max(config.rainDropStep, 3);
+        config.splashMax = Math.min(config.splashMax, 80);
+        config.rippleCount = Math.min(config.rippleCount, 6);
+        config.groundDrops = Math.min(config.groundDrops, 6);
+        config.cloudCount = Math.min(config.cloudCount, 2);
+        config.bandCount = Math.min(config.bandCount, 1);
+    }
+
+    return config;
 }
 
 function generateLocalRainDrops() {
@@ -1655,6 +1719,18 @@ function setupEventListeners() {
         zoomRange.addEventListener('input', () => {
             game.camera.zoom = parseFloat(zoomRange.value);
             zoomValue.textContent = `${game.camera.zoom.toFixed(1)}x`;
+        });
+    }
+    const renderQualitySelect = document.getElementById('render-quality');
+    if (renderQualitySelect) {
+        const storedQuality = localStorage.getItem('renderQuality');
+        if (storedQuality) {
+            game.renderQuality = storedQuality;
+        }
+        renderQualitySelect.value = game.renderQuality;
+        renderQualitySelect.addEventListener('change', () => {
+            game.renderQuality = renderQualitySelect.value;
+            localStorage.setItem('renderQuality', game.renderQuality);
         });
     }
     
@@ -3986,13 +4062,13 @@ function drawRain(ctx, now) {
     if (game.weather.type !== 'rain') return;
     const dt = game.frameDelta || 0.016;
     const bounds = getRainBounds();
+    const renderConfig = getRenderQualityConfig();
     const viewLeft = game.camera.x - 120;
     const viewRight = game.camera.x + game.canvas.width + 120;
     const shoreX = game.island.x + game.island.width;
     const waterY = getWaterLevel();
-    const swimming = game.player.swimming;
 
-    const maxSplashes = swimming ? 80 : 180;
+    const maxSplashes = renderConfig.splashMax;
     game.weather.splashes = (game.weather.splashes || []).filter((splash) => splash.life > 0).slice(-maxSplashes);
     game.weather.splashes.forEach((splash) => {
         splash.life -= dt;
@@ -4036,7 +4112,7 @@ function drawRain(ctx, now) {
 
     ctx.save();
     ctx.lineWidth = 1.5;
-    const dropStep = swimming ? 3 : 1;
+    const dropStep = renderConfig.rainDropStep;
     for (let i = 0; i < game.weather.drops.length; i += dropStep) {
         const drop = game.weather.drops[i];
         const step = drop.speed * (dt / 0.016);
@@ -4104,7 +4180,7 @@ function drawRain(ctx, now) {
     const waterLeft = Math.max(shoreX, viewLeft);
     const waterWidth = Math.max(0, viewRight - waterLeft);
     ctx.strokeStyle = 'rgba(220, 235, 255, 0.35)';
-    const rippleCount = swimming ? 6 : 18;
+    const rippleCount = renderConfig.rippleCount;
     for (let i = 0; i < rippleCount; i++) {
         const rx = waterLeft + ((i * 97 + now * 0.05) % Math.max(1, waterWidth));
         const ry = waterY + Math.sin(now * 0.006 + i) * 2;
@@ -4114,7 +4190,7 @@ function drawRain(ctx, now) {
     }
 
     ctx.fillStyle = 'rgba(220, 235, 255, 0.35)';
-    const groundDrops = swimming ? 6 : 14;
+    const groundDrops = renderConfig.groundDrops;
     for (let i = 0; i < groundDrops; i++) {
         const rx = game.island.x + ((i * 83 + now * 0.04) % game.island.width);
         const ry = groundSurfaceAt(rx) + 2;
@@ -4130,7 +4206,7 @@ function render() {
     const zoom = game.camera.zoom;
     const now = performance.now();
     const timeSeconds = now / 1000;
-    const lowPerfWater = game.player.swimming;
+    const renderConfig = getRenderQualityConfig();
     
     // Enable smooth rendering for zoomed-in scene
     ctx.imageSmoothingEnabled = true;
@@ -4156,7 +4232,7 @@ function render() {
     ctx.fillRect(0, 0, game.canvas.width, game.canvas.height);
     
     // Draw clouds
-    const cloudCount = lowPerfWater ? 2 : 5;
+    const cloudCount = renderConfig.cloudCount;
     for (let i = 0; i < cloudCount; i++) {
         const cloudX = (-game.camera.x * 0.3 + i * 400 + Math.sin(timeSeconds + i) * 50) % (game.canvas.width + 200) - 100;
         const cloudY = 50 + i * 80;
@@ -4185,22 +4261,40 @@ function render() {
         waterPath();
         ctx.fill();
 
-        // Water pattern (disabled)
+        // Water pattern
+        if (renderConfig.waterPattern) {
+            const waterColors = ['#4E7FE0', '#3F6BD1', '#3860BA'];
+            const waterPixelSize = renderConfig.waterPixelSize;
+            const timeOffset = Math.floor(now / 140);
+            ctx.save();
+            waterPath();
+            ctx.clip();
+            for (let x = waterStart; x < game.canvas.width; x += waterPixelSize) {
+                for (let y = waterY - 20; y < game.canvas.height; y += waterPixelSize) {
+                    const patternX = Math.floor((x + timeOffset) / waterPixelSize);
+                    const patternY = Math.floor((y - waterY) / waterPixelSize);
+                    const noise = (patternX * 73 + patternY * 37) % waterColors.length;
+                    ctx.fillStyle = waterColors[noise];
+                    ctx.fillRect(x, y, waterPixelSize, waterPixelSize);
+                }
+            }
+            ctx.restore();
+        }
 
         // Moving wave line at surface
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        const waveStep = lowPerfWater ? 16 : 8;
+        const waveStep = renderConfig.waveStep;
         for (let x = waterStart; x <= game.canvas.width; x += waveStep) {
-            const wave = Math.sin((x + now * 0.08) / 40) * (lowPerfWater ? 2 : 3);
+            const wave = Math.sin((x + now * 0.08) / 40) * renderConfig.waveAmp;
             ctx.lineTo(x, waterY + wave);
         }
         ctx.stroke();
 
         // Subtle wave bands
         ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
-        const bandCount = lowPerfWater ? 1 : 3;
+        const bandCount = renderConfig.bandCount;
         for (let i = 0; i < bandCount; i++) {
             const bandY = waterY + 16 + i * 18 + Math.sin(timeSeconds * 2 + i) * 2;
             ctx.fillRect(waterStart, bandY, game.canvas.width - waterStart, 2);
