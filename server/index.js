@@ -88,7 +88,9 @@ wss.on('connection', (ws) => {
     rodSprite: null,
     heldSprite: null,
     heldWeight: 0,
-    heldRarity: null
+    heldRarity: null,
+    money: 0,
+    pingMs: 0
   });
 
   ws.send(JSON.stringify({ type: 'welcome', id, weather: weatherState.type, drops: weatherState.drops }));
@@ -143,6 +145,14 @@ wss.on('connection', (ws) => {
       saveStore(store);
     } else if (msg.type === 'weather-set') {
       setWeather(msg.weather);
+    } else if (msg.type === 'ping') {
+      const player = clients.get(ws);
+      if (!player) return;
+      const sent = Number(msg.t || 0);
+      const now = Date.now();
+      const pingMs = sent ? Math.max(0, now - sent) : 0;
+      player.pingMs = pingMs;
+      ws.send(JSON.stringify({ type: 'pong', pingMs }));
     } else if (msg.type === 'move') {
       const player = clients.get(ws);
       if (!player) return;
@@ -156,6 +166,7 @@ wss.on('connection', (ws) => {
       player.heldSprite = msg.heldSprite || null;
       player.heldWeight = typeof msg.heldWeight === 'number' ? msg.heldWeight : 0;
       player.heldRarity = msg.heldRarity || null;
+      player.money = typeof msg.money === 'number' ? msg.money : player.money;
 
       broadcast({
         type: 'players',

@@ -64,6 +64,91 @@ body {
     z-index: 15;
 }
 
+.fps-meter {
+    position: absolute;
+    top: 52px;
+    right: 20px;
+    padding: 6px 10px;
+    background: rgba(20, 30, 40, 0.75);
+    color: #e8f7ff;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    pointer-events: none;
+    z-index: 15;
+}
+
+.players-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    min-width: 360px;
+    max-width: 520px;
+    max-height: 70vh;
+    overflow-y: auto;
+    background: rgba(235, 246, 255, 0.95);
+    border-radius: 18px;
+    padding: 20px 24px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.25);
+    pointer-events: none;
+    z-index: 18;
+}
+
+.players-overlay.hidden {
+    display: none;
+}
+
+.players-list {
+    display: grid;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.player-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(120, 160, 190, 0.2);
+}
+
+.player-meta {
+    display: grid;
+    gap: 4px;
+    font-size: 13px;
+    color: #1f3a4a;
+}
+
+.player-name {
+    font-weight: 700;
+    letter-spacing: 0.4px;
+}
+
+.player-money {
+    font-weight: 600;
+    color: #2f6f4d;
+}
+
+.ping-bar {
+    width: 90px;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(120, 140, 160, 0.25);
+    overflow: hidden;
+}
+
+.ping-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #2ecc71, #f1c40f, #e74c3c);
+    transition: width 0.2s ease;
+}
+
 .toast-container {
     top: 60px;
 }

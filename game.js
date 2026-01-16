@@ -156,10 +156,15 @@ const game = {
         authed: false,
         saveDirty: false,
         lastSave: 0,
-        hasLoadedState: false
+        hasLoadedState: false,
+        pingMs: 0,
+        pingInterval: null
     },
     lastFrameTime: 0,
-    frameDelta: 0.016
+    frameDelta: 0.016,
+    fps: 0,
+    fpsSmoothed: 60,
+    fpsLastUpdate: 0
 };
 
 // Fish Types with Rarities (using pixel art sprites)
@@ -576,6 +581,10 @@ function connectMultiplayer() {
         if (game.multiplayer.ready) {
             sendAuth();
         }
+        if (game.multiplayer.pingInterval) {
+            clearInterval(game.multiplayer.pingInterval);
+        }
+        game.multiplayer.pingInterval = setInterval(sendPing, 1000);
     };
 
     ws.onmessage = (event) => {
@@ -611,6 +620,7 @@ function connectMultiplayer() {
             game.multiplayer.players = msg.players || [];
             refreshMultiplayerUI();
             syncRemotePlayers();
+            updatePlayersOverlay();
         } else if (msg.type === 'gift') {
             if (msg.item) {
                 addToInventory(msg.item);
@@ -633,12 +643,18 @@ function connectMultiplayer() {
             game.multiplayer.tradePending = null;
         } else if (msg.type === 'dev-broadcast') {
             showToast(msg.text || 'Broadcast message', 'info');
+        } else if (msg.type === 'pong') {
+            game.multiplayer.pingMs = typeof msg.pingMs === 'number' ? msg.pingMs : game.multiplayer.pingMs;
         }
     };
 
     ws.onclose = () => {
         showToast('Disconnected. Reconnecting...', 'error');
         game.multiplayer.players = [];
+        if (game.multiplayer.pingInterval) {
+            clearInterval(game.multiplayer.pingInterval);
+            game.multiplayer.pingInterval = null;
+        }
         if (game.multiplayer.reconnectTimer) {
             clearTimeout(game.multiplayer.reconnectTimer);
         }
@@ -740,6 +756,15 @@ function sendWeatherSet(type) {
     ws.send(JSON.stringify({
         type: 'weather-set',
         weather: type
+    }));
+}
+
+function sendPing() {
+    const ws = game.multiplayer.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+        type: 'ping',
+        t: Date.now()
     }));
 }
 
@@ -993,6 +1018,46 @@ function refreshMultiplayerUI() {
             ? 'Select a player and an item to gift.'
             : 'Select a player and an item to offer in trade.';
     }
+}
+
+function updatePlayersOverlay() {
+    const overlay = document.getElementById('players-overlay');
+    const list = document.getElementById('players-list');
+    if (!overlay || !list || overlay.classList.contains('hidden')) return;
+    list.innerHTML = '';
+    const players = game.multiplayer.players || [];
+    players.forEach((player) => {
+        const row = document.createElement('div');
+        row.className = 'player-row';
+
+        const meta = document.createElement('div');
+        meta.className = 'player-meta';
+        const name = document.createElement('div');
+        name.className = 'player-name';
+        name.textContent = player.name || player.id?.slice(0, 6) || 'Player';
+        const money = document.createElement('div');
+        money.className = 'player-money';
+        money.textContent = `Money: $${Math.floor(player.money || 0)}`;
+        const ping = document.createElement('div');
+        const pingMs = Math.max(0, Math.round(player.pingMs || 0));
+        ping.textContent = `Ping: ${pingMs}ms`;
+        meta.appendChild(name);
+        meta.appendChild(money);
+        meta.appendChild(ping);
+
+        const pingBar = document.createElement('div');
+        pingBar.className = 'ping-bar';
+        const pingFill = document.createElement('div');
+        pingFill.className = 'ping-fill';
+        const pingClamp = Math.min(500, pingMs);
+        const width = Math.max(8, 100 - (pingClamp / 500) * 100);
+        pingFill.style.width = `${width}%`;
+        pingBar.appendChild(pingFill);
+
+        row.appendChild(meta);
+        row.appendChild(pingBar);
+        list.appendChild(row);
+    });
 }
 
 function canSendItem(item) {
@@ -1268,6 +1333,13 @@ function setupEventListeners() {
             game.keys.space = true;
         }
         game.keys[e.key.toLowerCase()] = true;
+        if (e.key.toLowerCase() === 'q') {
+            const overlay = document.getElementById('players-overlay');
+            if (overlay) {
+                overlay.classList.remove('hidden');
+                updatePlayersOverlay();
+            }
+        }
         handleKeyPress(e);
     });
     
@@ -1277,6 +1349,12 @@ function setupEventListeners() {
             game.keys.space = false;
         }
         game.keys[e.key.toLowerCase()] = false;
+        if (e.key.toLowerCase() === 'q') {
+            const overlay = document.getElementById('players-overlay');
+            if (overlay) {
+                overlay.classList.add('hidden');
+            }
+        }
     });
 
     window.addEventListener('blur', () => {
@@ -1718,7 +1796,8 @@ function syncMultiplayer() {
         rodSprite: rod ? rod.sprite : null,
         heldSprite: heldFish ? heldFish.sprite : null,
         heldWeight: heldFish ? heldFish.weight || 0 : 0,
-        heldRarity: heldFish ? heldFish.rarity || 'common' : null
+        heldRarity: heldFish ? heldFish.rarity || 'common' : null,
+        money: game.money
     }));
 }
 
@@ -3415,7 +3494,9 @@ function drawRain(ctx, now) {
 
     ctx.save();
     ctx.lineWidth = 1.5;
-    game.weather.drops.forEach((drop) => {
+    const dropStep = game.player.swimming ? 2 : 1;
+    for (let i = 0; i < game.weather.drops.length; i += dropStep) {
+        const drop = game.weather.drops[i];
         const step = drop.speed * (dt / 0.016);
         const nextY = drop.y + step;
         const hitY = nextY + drop.length;
@@ -3475,12 +3556,13 @@ function drawRain(ctx, now) {
         ctx.moveTo(drop.x, drop.y);
         ctx.lineTo(drop.x - 3, drop.y + drop.length);
         ctx.stroke();
-    });
+    }
 
     const waterLeft = Math.max(shoreX, viewLeft);
     const waterWidth = Math.max(0, viewRight - waterLeft);
     ctx.strokeStyle = 'rgba(220, 235, 255, 0.35)';
-    for (let i = 0; i < 18; i++) {
+    const rippleCount = game.player.swimming ? 10 : 18;
+    for (let i = 0; i < rippleCount; i++) {
         const rx = waterLeft + ((i * 97 + now * 0.05) % Math.max(1, waterWidth));
         const ry = waterY + Math.sin(now * 0.006 + i) * 2;
         ctx.beginPath();
@@ -3798,6 +3880,15 @@ function gameLoop() {
     const dt = game.lastFrameTime ? (now - game.lastFrameTime) / 1000 : 0.016;
     game.lastFrameTime = now;
     game.frameDelta = dt;
+    const fps = dt > 0 ? 1 / dt : 0;
+    game.fpsSmoothed = game.fpsSmoothed * 0.9 + fps * 0.1;
+    if (now - game.fpsLastUpdate > 250) {
+        const meter = document.getElementById('fps-meter');
+        if (meter) {
+            meter.textContent = `FPS: ${Math.round(game.fpsSmoothed)}`;
+        }
+        game.fpsLastUpdate = now;
+    }
     updatePlayer();
     updateFishing(dt);
     updateWeather();
