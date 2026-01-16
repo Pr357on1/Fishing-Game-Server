@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Island Fishing Game</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div id="ui-overlay">
+            <div id="toast-container" class="toast-container"></div>
+            <div id="teleport-buttons" class="teleport-buttons">
+                <button id="settings-btn" class="teleport-btn">Settings</button>
+                <button id="teleport-shop" class="teleport-btn">Shop</button>
+                <button id="teleport-dock" class="teleport-btn">Dock</button>
+            </div>
+            <div id="settings-panel" class="panel hidden">
+                <h2>Settings</h2>
+                <div class="settings-row">
+                    <label for="zoom-range">Camera Zoom</label>
+                    <input id="zoom-range" type="range" min="2.5" max="4.2" step="0.1" value="3.4">
+                    <span id="zoom-value">3.4x</span>
+                </div>
+                <button id="dev-open" class="close-btn">Admin</button>
+                <button id="dev-panel-open" class="close-btn ui-hidden">Dev Panel</button>
+                <button class="close-btn panel-close" data-panel="settings-panel">Close</button>
+            </div>
+            <div id="dialogue-panel" class="panel hidden">
+                <div class="dialogue-header">
+                    <div class="dialogue-title">Shopkeeper</div>
+                    <div class="dialogue-subtitle">Island Trader</div>
+                </div>
+                <div id="dialogue-content"></div>
+                <div class="dialogue-actions">
+                    <button id="dialogue-next" class="close-btn">Next</button>
+                    <button id="dialogue-close" class="close-btn">Close</button>
+                </div>
+            </div>
+            <div id="catch-popup" class="panel hidden">
+                <div class="catch-header">
+                    <div class="catch-title">Catch!</div>
+                    <div id="catch-rarity" class="catch-rarity"></div>
+                </div>
+                <div class="catch-body">
+                    <div id="catch-icon" class="catch-icon"></div>
+                    <div class="catch-info">
+                        <div id="catch-name" class="catch-name"></div>
+                        <div id="catch-weight" class="catch-weight"></div>
+                        <div id="catch-chance" class="catch-chance"></div>
+                        <div id="catch-price" class="catch-price"></div>
+                    </div>
+                </div>
+                <div class="catch-actions">
+                    <button id="catch-close" class="close-btn">Nice!</button>
+                </div>
+            </div>
+            <div id="hotbar" class="hotbar">
+                <div class="hotbar-slot" data-slot="0">
+                    <div class="slot-content"></div>
+                    <div class="slot-number">1</div>
+                </div>
+                <div class="hotbar-slot" data-slot="1">
+                    <div class="slot-content"></div>
+                    <div class="slot-number">2</div>
+                </div>
+                <div class="hotbar-slot" data-slot="2">
+                    <div class="slot-content"></div>
+                    <div class="slot-number">3</div>
+                </div>
+                <div class="hotbar-slot" data-slot="3">
+                    <div class="slot-content"></div>
+                    <div class="slot-number">4</div>
+                </div>
+                <div class="hotbar-slot" data-slot="4">
+                    <div class="slot-content"></div>
+                    <div class="slot-number">5</div>
+                </div>
+            </div>
+            <div id="inventory-panel" class="panel hidden">
+                <h2>Inventory</h2>
+                <div id="inventory-grid"></div>
+                <button class="close-btn panel-close" data-panel="inventory-panel">Close</button>
+            </div>
+            <div id="shop-panel" class="panel hidden">
+                <h2>Shop</h2>
+                <div id="shop-content">
+                    <div class="shop-section">
+                        <h3>Buy</h3>
+                        <div id="shop-buy"></div>
+                    </div>
+                    <div class="shop-section">
+                        <h3>Sell</h3>
+                        <div id="shop-sell"></div>
+                    </div>
+                </div>
+                <div class="panel-footer">
+                    <button class="close-btn panel-close" data-panel="shop-panel">Close</button>
+                </div>
+            </div>
+            <div id="fishing-minigame" class="panel hidden">
+                <h2>Catch the Fish!</h2>
+                <div id="fishing-bar-container">
+                    <div id="fishing-bar">
+                        <div id="fishing-indicator"></div>
+                        <div id="fishing-target"></div>
+                    </div>
+                </div>
+                <div id="fishing-timer">Time: <span id="timer-value">10</span>s</div>
+            </div>
+            <div id="dev-panel" class="panel hidden">
+                <h2>Dev Controls</h2>
+                <div class="dev-row">
+                    <button id="dev-toggle-fly" class="close-btn">Toggle Fly</button>
+                </div>
+                <div class="dev-row">
+                    <label for="dev-speed-range">Speed</label>
+                    <input id="dev-speed-range" type="range" min="1" max="12" step="0.5" value="5">
+                    <span id="dev-speed-value">5</span>
+                </div>
+                <div class="dev-row">
+                    <label for="dev-money-input">Money</label>
+                    <input id="dev-money-input" type="number" value="100" step="10">
+                    <button id="dev-money-set" class="close-btn">Set</button>
+                </div>
+                <div class="dev-row">
+                    <label for="dev-fish-select">Give Fish</label>
+                    <select id="dev-fish-select"></select>
+                    <input id="dev-fish-weight" type="number" value="2" step="0.1" min="0.1">
+                    <button id="dev-fish-give" class="close-btn">Give</button>
+                </div>
+                <button class="close-btn panel-close" data-panel="dev-panel">Close</button>
+            </div>
+            <div id="dev-code-input" class="dev-code-prompt hidden">
+                <h2>Developer Access</h2>
+                <p style="margin: 10px 0; color: #7f8c8d;">Enter the dev code to enable developer commands</p>
+                <input type="text" id="dev-code" placeholder="Enter dev code">
+                <button id="dev-code-submit">Submit</button>
+                <button class="close-btn" style="margin-left: 10px;" onclick="document.getElementById('dev-code-input').classList.add('hidden')">Skip</button>
+            </div>
+        </div>
+    </div>
+    <script src="game.js"></script>
+</body>
+</html>
