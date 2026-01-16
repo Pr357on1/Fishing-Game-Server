@@ -164,7 +164,11 @@ const game = {
     frameDelta: 0.016,
     fps: 0,
     fpsSmoothed: 60,
-    fpsLastUpdate: 0
+    fpsLastUpdate: 0,
+    tutorial: {
+        active: false,
+        stepIndex: 0
+    }
 };
 
 // Fish Types with Rarities (using pixel art sprites)
@@ -349,6 +353,9 @@ function init() {
 
     // Weather setup
     initWeather();
+
+    // Tutorial setup
+    initTutorial();
     
     // Initialize hotbar selection
     selectHotbarSlot(0);
@@ -605,12 +612,14 @@ function connectMultiplayer() {
             const panel = document.getElementById('player-setup');
             if (panel) panel.classList.add('hidden');
             showToast('Loaded your saved player.', 'success');
+            maybeShowTutorialPrompt();
         } else if (msg.type === 'auth-new') {
             game.multiplayer.authed = true;
             applyDefaultState();
             const panel = document.getElementById('player-setup');
             if (panel) panel.classList.add('hidden');
             showToast('New player created.', 'success');
+            maybeShowTutorialPrompt();
         } else if (msg.type === 'auth-error') {
             game.multiplayer.authed = false;
             showToast(msg.message || 'Auth failed.', 'error');
@@ -1058,6 +1067,126 @@ function updatePlayersOverlay() {
         row.appendChild(pingBar);
         list.appendChild(row);
     });
+}
+
+const TUTORIAL_STEPS = [
+    'Welcome! Use A/D or Left/Right to move. Space or W jumps.',
+    'Equip a rod from the hotbar (1-5) and press F to fish at the dock.',
+    'During fishing: Stage 1 reel uses A/D to keep the fish in the green zone.',
+    'Stage 2 is aim: click the targets quickly. Stage 3 is timing: press Space on the green zone.',
+    'Open Inventory with I. Click an item to put it in your hotbar.',
+    'Talk to the shopkeeper (near the hut) and press E to buy/sell.',
+    'Hold Q to see players online, their ping, and money. Have fun!'
+];
+
+function initTutorial() {
+    const openBtn = document.getElementById('tutorial-open');
+    if (openBtn) {
+        openBtn.addEventListener('click', () => {
+            showTutorialPrompt(true);
+        });
+    }
+    const startBtn = document.getElementById('tutorial-start');
+    const skipBtn = document.getElementById('tutorial-skip');
+    const prevBtn = document.getElementById('tutorial-prev');
+    const nextBtn = document.getElementById('tutorial-next');
+    const closeBtn = document.getElementById('tutorial-close');
+    if (startBtn) {
+        startBtn.addEventListener('click', () => {
+            hideTutorialPrompt();
+            startTutorial();
+        });
+    }
+    if (skipBtn) {
+        skipBtn.addEventListener('click', () => {
+            hideTutorialPrompt();
+            localStorage.setItem('tutorialSeen', 'true');
+        });
+    }
+    if (prevBtn) {
+        prevBtn.addEventListener('click', () => {
+            setTutorialStep(game.tutorial.stepIndex - 1);
+        });
+    }
+    if (nextBtn) {
+        nextBtn.addEventListener('click', handleTutorialNext);
+    }
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+            closeTutorial();
+        });
+    }
+}
+
+function maybeShowTutorialPrompt() {
+    const seen = localStorage.getItem('tutorialSeen');
+    if (seen === 'true') return;
+    showTutorialPrompt(false);
+}
+
+function showTutorialPrompt(forceOpen) {
+    const prompt = document.getElementById('tutorial-prompt');
+    if (!prompt) return;
+    if (!forceOpen) {
+        const playerSetup = document.getElementById('player-setup');
+        if (playerSetup && !playerSetup.classList.contains('hidden')) {
+            return;
+        }
+    }
+    prompt.classList.remove('hidden');
+}
+
+function hideTutorialPrompt() {
+    const prompt = document.getElementById('tutorial-prompt');
+    if (prompt) {
+        prompt.classList.add('hidden');
+    }
+}
+
+function startTutorial() {
+    game.tutorial.active = true;
+    game.tutorial.stepIndex = 0;
+    localStorage.setItem('tutorialSeen', 'true');
+    const panel = document.getElementById('tutorial-panel');
+    if (panel) {
+        panel.classList.remove('hidden');
+    }
+    setTutorialStep(0);
+}
+
+function setTutorialStep(index) {
+    const panel = document.getElementById('tutorial-panel');
+    if (!panel) return;
+    const step = document.getElementById('tutorial-step');
+    const prevBtn = document.getElementById('tutorial-prev');
+    const nextBtn = document.getElementById('tutorial-next');
+    const clamped = Math.max(0, Math.min(TUTORIAL_STEPS.length - 1, index));
+    game.tutorial.stepIndex = clamped;
+    if (step) {
+        step.textContent = TUTORIAL_STEPS[clamped];
+    }
+    if (prevBtn) {
+        prevBtn.disabled = clamped === 0;
+    }
+    if (nextBtn) {
+        nextBtn.textContent = clamped === TUTORIAL_STEPS.length - 1 ? 'Finish' : 'Next';
+    }
+}
+
+function handleTutorialNext() {
+    if (game.tutorial.stepIndex >= TUTORIAL_STEPS.length - 1) {
+        closeTutorial();
+    } else {
+        setTutorialStep(game.tutorial.stepIndex + 1);
+    }
+}
+
+function closeTutorial() {
+    const panel = document.getElementById('tutorial-panel');
+    if (panel) {
+        panel.classList.add('hidden');
+    }
+    game.tutorial.active = false;
 }
 
 function canSendItem(item) {

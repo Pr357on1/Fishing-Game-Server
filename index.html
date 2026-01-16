@@ -41,6 +41,7 @@
                     <input id="zoom-range" type="range" min="2.5" max="4.2" step="0.1" value="3.4">
                     <span id="zoom-value">3.4x</span>
                 </div>
+                <button id="tutorial-open" class="close-btn">Tutorial</button>
                 <button id="dev-open" class="close-btn">Admin</button>
                 <button id="dev-panel-open" class="close-btn ui-hidden">Dev Panel</button>
                 <button id="multiplayer-open" class="close-btn">Multiplayer</button>
@@ -237,6 +238,23 @@
                 <input type="text" id="dev-code" placeholder="Enter dev code">
                 <button id="dev-code-submit">Submit</button>
                 <button class="close-btn" style="margin-left: 10px;" onclick="document.getElementById('dev-code-input').classList.add('hidden')">Skip</button>
+            </div>
+            <div id="tutorial-prompt" class="panel hidden">
+                <h2>Start Tutorial?</h2>
+                <p style="margin: 10px 0; color: #5b6b73;">Learn the basics: movement, fishing, inventory, and shop.</p>
+                <div class="mp-actions">
+                    <button id="tutorial-start" class="close-btn">Start Tutorial</button>
+                    <button id="tutorial-skip" class="close-btn">Skip</button>
+                </div>
+            </div>
+            <div id="tutorial-panel" class="panel hidden">
+                <h2>Tutorial</h2>
+                <div id="tutorial-step" class="tutorial-step"></div>
+                <div class="mp-actions">
+                    <button id="tutorial-prev" class="close-btn">Back</button>
+                    <button id="tutorial-next" class="close-btn">Next</button>
+                    <button id="tutorial-close" class="close-btn">Close</button>
+                </div>
             </div>
         </div>
     </div>
