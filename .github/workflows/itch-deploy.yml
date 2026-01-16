@@ -11,17 +11,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.24.x"
-
       - name: Install butler
         run: |
-          go install github.com/itchio/butler@latest
+          set -e
+          curl -fL -o butler.zip "https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default" || \
+          curl -fL -o butler.zip "https://broth.itch.ovh/butler/linux-amd64/LATEST/archive/default"
+          size=$(stat -c%s butler.zip)
+          if [ "$size" -lt 100000 ]; then
+            echo "Downloaded file is too small (${size} bytes)."
+            exit 1
+          fi
+          unzip -q butler.zip
+          chmod +x butler
 
       - name: Push to itch.io
         env:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
         run: |
-          ~/go/bin/butler push . pr357on/fishing-game:html
+          ./butler push . pr357on/fishing-game:html
