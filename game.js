@@ -168,7 +168,15 @@ const game = {
     tutorial: {
         active: false,
         stepIndex: 0
-    }
+    },
+    buffs: {
+        luckBonus: 0,
+        speedMultiplier: 1,
+        progressGainMultiplier: 1,
+        targetWidthBonus: 0,
+        timeMultiplier: 1
+    },
+    activeBuffs: []
 };
 
 // Fish Types with Rarities (using pixel art sprites)
@@ -286,7 +294,63 @@ const SHOP_ITEMS = [
             luck: 0.12
         }
     },
-    { name: 'Bait', sprite: 'bait', price: 5, type: 'consumable' }
+    {
+        name: 'Reinforced Rod',
+        sprite: 'rodReinforced',
+        price: 900,
+        type: 'rod',
+        upgrade: 4,
+        aura: 'advanced',
+        buffs: ['Catch window +45%', 'Fish movement -35%', 'Rare chance +10%', 'Catch progress +35%', 'Time +45%'],
+        stats: {
+            targetWidthBonus: 14,
+            indicatorSpeedMultiplier: 0.8,
+            progressGainMultiplier: 1.35,
+            progressLossMultiplier: 0.65,
+            fishSpeedMultiplier: 0.65,
+            timeMultiplier: 1.45,
+            luck: 0.16
+        }
+    },
+    {
+        name: 'Mythic Rod',
+        sprite: 'rodMythic',
+        price: 1800,
+        type: 'rod',
+        upgrade: 5,
+        aura: 'elite',
+        buffs: ['Catch window +55%', 'Fish movement -45%', 'Rare chance +15%', 'Catch progress +50%', 'Time +60%'],
+        stats: {
+            targetWidthBonus: 18,
+            indicatorSpeedMultiplier: 0.72,
+            progressGainMultiplier: 1.5,
+            progressLossMultiplier: 0.55,
+            fishSpeedMultiplier: 0.55,
+            timeMultiplier: 1.6,
+            luck: 0.22
+        }
+    },
+    {
+        name: 'Bait',
+        sprite: 'bait',
+        price: 5,
+        type: 'consumable',
+        effects: ['Luck +3%', 'Reel progress +10%', 'Catch window +2', 'Duration 45s']
+    },
+    {
+        name: 'Lucky Potion',
+        sprite: 'potionLuck',
+        price: 120,
+        type: 'consumable',
+        effects: ['Luck +8%', 'Duration 60s']
+    },
+    {
+        name: 'Swift Potion',
+        sprite: 'potionSpeed',
+        price: 90,
+        type: 'consumable',
+        effects: ['Move speed +25%', 'Duration 45s']
+    }
 ];
 
 // Initialize Game
@@ -1075,6 +1139,7 @@ const TUTORIAL_STEPS = [
     'During fishing: Stage 1 reel uses A/D to keep the fish in the green zone.',
     'Stage 2 is aim: click the targets quickly. Stage 3 is timing: press Space on the green zone.',
     'Open Inventory with I. Click an item to put it in your hotbar.',
+    'Use R on bait or potions in your hotbar to get temporary buffs.',
     'Talk to the shopkeeper (near the hut) and press E to buy/sell.',
     'Hold Q to see players online, their ping, and money. Have fun!'
 ];
@@ -1685,6 +1750,13 @@ function handleKeyPress(e) {
             startFishing();
         }
     }
+
+    if (e.key.toLowerCase() === 'r') {
+        const heldItem = game.hotbar[game.selectedSlot];
+        if (heldItem && heldItem.type === 'consumable') {
+            useConsumable(heldItem);
+        }
+    }
     
     // Space to jump (disabled while fishing)
     if (e.key === ' ' && !game.fishing.active) {
@@ -1722,11 +1794,12 @@ function updatePlayer() {
     game.shopKeeper.y = groundSurfaceAt(game.shopKeeper.x) - game.shopKeeper.height;
     if (!game.fishing.active) {
         // Horizontal movement (1D - only left/right)
+        const moveSpeed = PLAYER_SPEED * (game.buffs.speedMultiplier || 1);
         if (!game.fishing.active && (game.keys['a'] || game.keys['arrowleft'])) {
-            game.player.vx = -PLAYER_SPEED;
+            game.player.vx = -moveSpeed;
             game.player.facingRight = false;
         } else if (!game.fishing.active && (game.keys['d'] || game.keys['arrowright'])) {
-            game.player.vx = PLAYER_SPEED;
+            game.player.vx = moveSpeed;
             game.player.facingRight = true;
         } else {
             // Apply friction
@@ -2266,7 +2339,7 @@ function generateFishWeight(fish, rarity) {
     const [min, max] = getFishWeightRange(fish, rarity);
     const baseMin = Math.max(1, min);
     const baseMax = Math.min(10, max);
-    const hugeChance = 0.02;
+    const hugeChance = 0.015;
     let weight;
     if (max >= 100 && Math.random() < hugeChance) {
         const hugeMin = Math.max(100, min);
@@ -2334,6 +2407,94 @@ function addToInventory(item) {
     }
     markSaveDirty();
     updateHotbar();
+}
+
+function applyBuff(buff) {
+    const now = performance.now();
+    game.activeBuffs = game.activeBuffs.filter(existing => existing.name !== buff.name);
+    game.activeBuffs.push({
+        ...buff,
+        expiresAt: now + buff.durationMs
+    });
+    recalculateBuffs();
+}
+
+function recalculateBuffs() {
+    const totals = {
+        luckBonus: 0,
+        speedMultiplier: 1,
+        progressGainMultiplier: 1,
+        targetWidthBonus: 0,
+        timeMultiplier: 1
+    };
+    game.activeBuffs.forEach((buff) => {
+        if (buff.luckBonus) totals.luckBonus += buff.luckBonus;
+        if (buff.speedMultiplier) totals.speedMultiplier *= buff.speedMultiplier;
+        if (buff.progressGainMultiplier) totals.progressGainMultiplier *= buff.progressGainMultiplier;
+        if (buff.targetWidthBonus) totals.targetWidthBonus += buff.targetWidthBonus;
+        if (buff.timeMultiplier) totals.timeMultiplier *= buff.timeMultiplier;
+    });
+    game.buffs = totals;
+}
+
+function updateBuffs() {
+    const now = performance.now();
+    const before = game.activeBuffs.length;
+    game.activeBuffs = game.activeBuffs.filter(buff => buff.expiresAt > now);
+    if (game.activeBuffs.length !== before) {
+        recalculateBuffs();
+    }
+}
+
+function consumeItem(item) {
+    if (!item) return;
+    if (item.count && item.count > 1) {
+        item.count -= 1;
+    } else {
+        const index = game.inventory.indexOf(item);
+        if (index > -1) {
+            game.inventory.splice(index, 1);
+        }
+        const hotbarIndex = game.hotbar.indexOf(item);
+        if (hotbarIndex > -1) {
+            game.hotbar[hotbarIndex] = null;
+        }
+    }
+    updateHotbar();
+    updateInventoryDisplay();
+    markSaveDirty();
+}
+
+function useConsumable(item) {
+    if (!item) return;
+    if (item.sprite === 'bait') {
+        applyBuff({
+            name: 'bait',
+            durationMs: 45000,
+            luckBonus: 0.03,
+            progressGainMultiplier: 1.1,
+            targetWidthBonus: 2
+        });
+        showToast('Bait applied: better luck for a short time.', 'success');
+    } else if (item.sprite === 'potionLuck') {
+        applyBuff({
+            name: 'luck',
+            durationMs: 60000,
+            luckBonus: 0.08
+        });
+        showToast('Lucky Potion active: higher rare chance.', 'success');
+    } else if (item.sprite === 'potionSpeed') {
+        applyBuff({
+            name: 'speed',
+            durationMs: 45000,
+            speedMultiplier: 1.25
+        });
+        showToast('Swift Potion active: faster movement.', 'success');
+    } else {
+        showToast('This consumable has no effect yet.', 'info');
+        return;
+    }
+    consumeItem(item);
 }
 
 function updateInventoryDisplay() {
@@ -2420,14 +2581,14 @@ function getRarityColor(rarity) {
 
 function getRarityWeights(rodStats) {
     const luck = rodStats.luck || 0;
-    let common = 0.5 - luck * 0.6;
-    let uncommon = 0.25 - luck * 0.3;
-    let rare = 0.15 + luck * 0.4;
-    let epic = 0.08 + luck * 0.2;
-    let legendary = 0.02 + luck * 0.1;
+    let common = 0.62 - luck * 0.5;
+    let uncommon = 0.25 - luck * 0.2;
+    let rare = 0.1 + luck * 0.3;
+    let epic = 0.025 + luck * 0.15;
+    let legendary = 0.005 + luck * 0.05;
 
-    common = Math.max(0.1, common);
-    uncommon = Math.max(0.05, uncommon);
+    common = Math.max(0.12, common);
+    uncommon = Math.max(0.06, uncommon);
     const total = common + uncommon + rare + epic + legendary;
     return {
         common: common / total,
@@ -2444,20 +2605,29 @@ function getEquippedRod() {
 }
 
 function getRodStats(rod) {
-    if (rod && rod.stats) {
-        return { ...DEFAULT_ROD_STATS, ...rod.stats };
-    }
-    return { ...DEFAULT_ROD_STATS };
+    const base = rod && rod.stats ? { ...DEFAULT_ROD_STATS, ...rod.stats } : { ...DEFAULT_ROD_STATS };
+    const buffs = game.buffs || {};
+    return {
+        ...base,
+        luck: base.luck + (buffs.luckBonus || 0),
+        progressGainMultiplier: base.progressGainMultiplier * (buffs.progressGainMultiplier || 1),
+        targetWidthBonus: base.targetWidthBonus + (buffs.targetWidthBonus || 0),
+        timeMultiplier: base.timeMultiplier * (buffs.timeMultiplier || 1)
+    };
 }
 
 function getRodAuraClass(rod) {
     if (!rod || !rod.aura) return '';
-    return rod.aura === 'master' ? 'rod-aura-master' : 'rod-aura-advanced';
+    if (rod.aura === 'master') return 'rod-aura-master';
+    if (rod.aura === 'elite') return 'rod-aura-elite';
+    return 'rod-aura-advanced';
 }
 
 function getRodAuraColor(rod) {
     if (!rod || !rod.aura) return '';
-    return rod.aura === 'master' ? 'rgba(255, 215, 90, 0.9)' : 'rgba(74, 206, 255, 0.9)';
+    if (rod.aura === 'master') return 'rgba(255, 215, 90, 0.9)';
+    if (rod.aura === 'elite') return 'rgba(255, 120, 255, 0.9)';
+    return 'rgba(74, 206, 255, 0.9)';
 }
 
 function getRodVisual(rod) {
@@ -2469,6 +2639,10 @@ function getRodVisual(rod) {
             return { shaft: '#7A4B2A', line: '#8ECDF2', reel: '#4FC3F7' };
         case 'rodMaster':
             return { shaft: '#9C6B3B', line: '#E9D9A6', reel: '#F2C14E' };
+        case 'rodReinforced':
+            return { shaft: '#5B3B22', line: '#B7E3FF', reel: '#7BDFF6' };
+        case 'rodMythic':
+            return { shaft: '#4F2E5C', line: '#F3E6FF', reel: '#D77DFF' };
         default:
             return { shaft: '#8B5A2B', line: '#cbd6df', reel: '#c2a66b' };
     }
@@ -2575,6 +2749,15 @@ function updateShopDisplay() {
                 buffs.appendChild(li);
             });
             detailsDiv.appendChild(buffs);
+        } else if (item.type === 'consumable' && item.effects && item.effects.length) {
+            const effects = document.createElement('ul');
+            effects.className = 'shop-item-buffs';
+            item.effects.forEach((effect) => {
+                const li = document.createElement('li');
+                li.textContent = effect;
+                effects.appendChild(li);
+            });
+            detailsDiv.appendChild(effects);
         }
         
         const infoDiv = document.createElement('div');
@@ -2961,6 +3144,36 @@ function drawPixelSprite(ctx, spriteType, x, y, size = 32) {
             ctx.fillRect(7 * pixelSize, 2 * pixelSize, 1 * pixelSize, 1 * pixelSize);
             ctx.fillRect(8 * pixelSize, 3 * pixelSize, 1 * pixelSize, 1 * pixelSize); // Triple hook
             break;
+
+        case 'rodReinforced':
+            // Reinforced Rod - dark wood + icy line
+            ctx.fillStyle = '#5B3B22';
+            ctx.fillRect(2 * pixelSize, 0, 1 * pixelSize, 8 * pixelSize);
+            ctx.fillStyle = '#3E2918';
+            ctx.fillRect(1 * pixelSize, 3 * pixelSize, 1 * pixelSize, 5 * pixelSize);
+            ctx.fillStyle = '#7BDFF6';
+            ctx.fillRect(3 * pixelSize, 2 * pixelSize, 1 * pixelSize, 1 * pixelSize);
+            ctx.fillStyle = '#B7E3FF';
+            ctx.fillRect(3 * pixelSize, 0, 6 * pixelSize, 1 * pixelSize);
+            ctx.fillStyle = '#E6F5FF';
+            ctx.fillRect(8 * pixelSize, 1 * pixelSize, 1 * pixelSize, 1 * pixelSize);
+            ctx.fillRect(7 * pixelSize, 2 * pixelSize, 1 * pixelSize, 1 * pixelSize);
+            break;
+
+        case 'rodMythic':
+            // Mythic Rod - violet glow + bright line
+            ctx.fillStyle = '#4F2E5C';
+            ctx.fillRect(2 * pixelSize, 0, 1 * pixelSize, 8 * pixelSize);
+            ctx.fillStyle = '#321C3C';
+            ctx.fillRect(1 * pixelSize, 2 * pixelSize, 1 * pixelSize, 6 * pixelSize);
+            ctx.fillStyle = '#D77DFF';
+            ctx.fillRect(3 * pixelSize, 2 * pixelSize, 1 * pixelSize, 1 * pixelSize);
+            ctx.fillStyle = '#F3E6FF';
+            ctx.fillRect(3 * pixelSize, 0, 6 * pixelSize, 1 * pixelSize);
+            ctx.fillStyle = '#FFD6FF';
+            ctx.fillRect(8 * pixelSize, 1 * pixelSize, 1 * pixelSize, 1 * pixelSize);
+            ctx.fillRect(8 * pixelSize, 3 * pixelSize, 1 * pixelSize, 1 * pixelSize);
+            break;
             
         case 'bait':
             // Bait - worm
@@ -2970,6 +3183,30 @@ function drawPixelSprite(ctx, spriteType, x, y, size = 32) {
             ctx.fillRect(3 * pixelSize, 2 * pixelSize, 2 * pixelSize, 1 * pixelSize);
             ctx.fillRect(3 * pixelSize, 5 * pixelSize, 2 * pixelSize, 1 * pixelSize);
             ctx.fillStyle = '#FF6347';
+            ctx.fillRect(3 * pixelSize, 3 * pixelSize, 2 * pixelSize, 2 * pixelSize);
+            break;
+
+        case 'potionLuck':
+            // Lucky Potion - green vial
+            ctx.fillStyle = '#2ECC71';
+            ctx.fillRect(2 * pixelSize, 2 * pixelSize, 4 * pixelSize, 5 * pixelSize);
+            ctx.fillStyle = '#1E8449';
+            ctx.fillRect(2 * pixelSize, 6 * pixelSize, 4 * pixelSize, 1 * pixelSize);
+            ctx.fillStyle = '#D5F5E3';
+            ctx.fillRect(3 * pixelSize, 1 * pixelSize, 2 * pixelSize, 1 * pixelSize);
+            ctx.fillStyle = '#A3E4D7';
+            ctx.fillRect(3 * pixelSize, 3 * pixelSize, 2 * pixelSize, 2 * pixelSize);
+            break;
+
+        case 'potionSpeed':
+            // Swift Potion - blue vial
+            ctx.fillStyle = '#3498DB';
+            ctx.fillRect(2 * pixelSize, 2 * pixelSize, 4 * pixelSize, 5 * pixelSize);
+            ctx.fillStyle = '#21618C';
+            ctx.fillRect(2 * pixelSize, 6 * pixelSize, 4 * pixelSize, 1 * pixelSize);
+            ctx.fillStyle = '#D6EAF8';
+            ctx.fillRect(3 * pixelSize, 1 * pixelSize, 2 * pixelSize, 1 * pixelSize);
+            ctx.fillStyle = '#A9CCE3';
             ctx.fillRect(3 * pixelSize, 3 * pixelSize, 2 * pixelSize, 2 * pixelSize);
             break;
     }
@@ -4018,6 +4255,7 @@ function gameLoop() {
         }
         game.fpsLastUpdate = now;
     }
+    updateBuffs();
     updatePlayer();
     updateFishing(dt);
     updateWeather();

@@ -506,12 +506,14 @@ body {
 }
 
 .rod-aura-advanced,
-.rod-aura-master {
+.rod-aura-master,
+.rod-aura-elite {
     position: relative;
 }
 
 .rod-aura-advanced::after,
-.rod-aura-master::after {
+.rod-aura-master::after,
+.rod-aura-elite::after {
     content: '';
     position: absolute;
     inset: -6px;
@@ -527,6 +529,10 @@ body {
 
 .rod-aura-master::after {
     box-shadow: 0 0 12px rgba(255, 215, 90, 0.95), 0 0 26px rgba(255, 215, 90, 0.6);
+}
+
+.rod-aura-elite::after {
+    box-shadow: 0 0 12px rgba(255, 120, 255, 0.95), 0 0 26px rgba(255, 120, 255, 0.6);
 }
 
 @keyframes auraPulse {
