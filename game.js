@@ -13,6 +13,7 @@ const FLY_SPEED = 3;
 const GROUND_LEVEL = CANVAS_HEIGHT - 150;
 const FRICTION = 0.85;
 const MULTIPLAYER_URL = 'wss://fishing-game-server.onrender.com';
+const WEATHER_TOGGLE_MS = 180000;
 const AVATARS = [
     { id: 'reef', skin: '#58B4A6', shirt: '#3FA08E', pants: '#2C7E71' },
     { id: 'sunset', skin: '#F2C1A0', shirt: '#E87D72', pants: '#B85C4E' },
@@ -96,13 +97,13 @@ const game = {
         indicatorSpeed: 5,
         targetPos: 0,
         targetWidth: 30,
-        timer: 30,
+        timer: 15,
         difficulty: 0.3,
         progress: 0,
         fishPos: 50,
         fishVel: 0,
-        progressGain: 0.012,
-        progressLoss: 0.006,
+        progressGain: 0.01,
+        progressLoss: 0.005,
         fishSpeedMultiplier: 1,
         rodStats: null,
         castActive: false,
@@ -111,7 +112,26 @@ const game = {
         castInWater: false,
         catchDisplay: null,
         stage: 1,
-        stagesTotal: 1
+        stagesTotal: 1,
+        stageType: 'track',
+        stageBaseTime: 15,
+        stageTimeRemaining: 15,
+        pendingRarity: null,
+        pendingRarityChance: 0,
+        difficultyScale: 1,
+        targetHitsRemaining: 0,
+        timingHits: 0,
+        timingHitsNeeded: 0,
+        timingMarkerPos: 50,
+        timingMarkerDir: 1,
+        timingTargetCenter: 50,
+        timingTargetWidth: 18,
+        timingSpeed: 1
+    },
+    weather: {
+        type: 'sunny',
+        nextToggleAt: 0,
+        drops: []
     },
     multiplayer: {
         ws: null,
@@ -318,6 +338,8 @@ function init() {
     // Multiplayer UI
     initMultiplayerUI();
 
+    // Weather setup
+    initWeather();
     
     // Initialize hotbar selection
     selectHotbarSlot(0);
@@ -561,6 +583,9 @@ function connectMultiplayer() {
         }
         if (msg.type === 'welcome') {
             game.multiplayer.id = msg.id;
+            if (msg.weather) {
+                setWeather(msg.weather);
+            }
         } else if (msg.type === 'auth-ok') {
             game.multiplayer.authed = true;
             applySavedState(msg.state);
@@ -576,6 +601,8 @@ function connectMultiplayer() {
         } else if (msg.type === 'auth-error') {
             game.multiplayer.authed = false;
             showToast(msg.message || 'Auth failed.', 'error');
+        } else if (msg.type === 'weather') {
+            setWeather(msg.weather);
         } else if (msg.type === 'players') {
             game.multiplayer.players = msg.players || [];
             refreshMultiplayerUI();
@@ -680,6 +707,49 @@ function sendDevBroadcast(text) {
         text
     }));
     showToast('Broadcast sent.', 'success');
+}
+
+function initWeather() {
+    const now = performance.now();
+    game.weather.nextToggleAt = now + WEATHER_TOGGLE_MS;
+    game.weather.drops = [];
+    for (let i = 0; i < 140; i++) {
+        game.weather.drops.push({
+            x: Math.random() * CANVAS_WIDTH,
+            y: Math.random() * CANVAS_HEIGHT,
+            speed: 6 + Math.random() * 6,
+            length: 10 + Math.random() * 12,
+            alpha: 0.35 + Math.random() * 0.3
+        });
+    }
+}
+
+function setWeather(type) {
+    if (!type || !['sunny', 'rain'].includes(type)) return;
+    game.weather.type = type;
+    game.weather.nextToggleAt = performance.now() + WEATHER_TOGGLE_MS;
+}
+
+function sendWeatherSet(type) {
+    const ws = game.multiplayer.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        setWeather(type);
+        return;
+    }
+    ws.send(JSON.stringify({
+        type: 'weather-set',
+        weather: type
+    }));
+}
+
+function updateWeather() {
+    const now = performance.now();
+    const ws = game.multiplayer.ws;
+    if (ws && ws.readyState === WebSocket.OPEN) return;
+    if (now >= game.weather.nextToggleAt) {
+        const next = game.weather.type === 'rain' ? 'sunny' : 'rain';
+        setWeather(next);
+    }
 }
 
 function createItemId() {
@@ -1271,6 +1341,24 @@ function setupEventListeners() {
             devBroadcast.value = '';
         });
     }
+    const devWeatherSunny = document.getElementById('dev-weather-sunny');
+    const devWeatherRain = document.getElementById('dev-weather-rain');
+    if (devWeatherSunny && devWeatherRain) {
+        devWeatherSunny.addEventListener('click', () => {
+            if (!game.devMode) {
+                showToast('Enable dev mode first.', 'error');
+                return;
+            }
+            sendWeatherSet('sunny');
+        });
+        devWeatherRain.addEventListener('click', () => {
+            if (!game.devMode) {
+                showToast('Enable dev mode first.', 'error');
+                return;
+            }
+            sendWeatherSet('rain');
+        });
+    }
     const devMoneyInput = document.getElementById('dev-money-input');
     const devMoneySet = document.getElementById('dev-money-set');
     if (devMoneyInput && devMoneySet) {
@@ -1332,6 +1420,10 @@ function isTypingInInput() {
 
 function handleKeyPress(e) {
     if (isTypingInInput()) return;
+    if (game.fishing.active && e.code === 'Space' && game.fishing.stageType === 'timing') {
+        attemptTimingHit();
+        return;
+    }
     // Inventory (I key)
     if (e.key.toLowerCase() === 'i') {
         togglePanel('inventory-panel');
@@ -1500,8 +1592,8 @@ function updatePlayer() {
 
 function updateRemotePlayers() {
     Object.values(game.multiplayer.remotePlayers).forEach((player) => {
-        player.renderX += (player.x - player.renderX) * 0.18;
-        player.renderY += (player.y - player.renderY) * 0.18;
+        player.renderX += (player.x - player.renderX) * 0.12;
+        player.renderY += (player.y - player.renderY) * 0.12;
     });
 }
 
@@ -1556,6 +1648,8 @@ function syncMultiplayer() {
     }));
 }
 
+const FISHING_STAGE_ORDER = ['track', 'targets', 'timing'];
+
 // Fishing Minigame
 function startFishing() {
     // Only start minigame if bobber is in water
@@ -1569,101 +1663,203 @@ function startFishing() {
 
     game.fishing.active = true;
     const rodStats = getRodStats(getEquippedRod());
-    const baseTimer = 30;
-    game.fishing.indicatorPos = 50;
-    game.fishing.targetPos = 50 + (Math.random() - 0.5) * 140;
-    game.fishing.targetPos = Math.max(20, Math.min(80, game.fishing.targetPos));
-    game.fishing.timer = baseTimer * (rodStats.timeMultiplier || 1);
-    game.fishing.indicatorSpeed = (2.5 + Math.random() * 1.5) * rodStats.indicatorSpeedMultiplier;
-    game.fishing.targetWidth = 30 + rodStats.targetWidthBonus;
-    game.fishing.progressGain = 0.012 * rodStats.progressGainMultiplier;
-    game.fishing.progressLoss = 0.006 * rodStats.progressLossMultiplier;
-    game.fishing.fishSpeedMultiplier = rodStats.fishSpeedMultiplier;
+    const pendingRarity = getRandomRarity(rodStats);
+    game.fishing.pendingRarity = pendingRarity;
+    game.fishing.pendingRarityChance = getRarityWeights(rodStats)[pendingRarity] * 100;
+    game.fishing.difficultyScale = getRarityDifficulty(pendingRarity);
     game.fishing.rodStats = rodStats;
-    game.fishing.progress = 0;
-    game.fishing.fishPos = 50;
-    game.fishing.fishVel = 0;
     game.fishing.stage = 1;
-    game.fishing.stagesTotal = 3;
+    game.fishing.stagesTotal = FISHING_STAGE_ORDER.length;
+    game.fishing.stageType = FISHING_STAGE_ORDER[0];
     game.fishing.castActive = true;
     game.fishing.castX = castX;
     game.fishing.castY = game.player.y + 60;
     game.fishing.castInWater = true;
+    setupFishingStage();
     
     document.getElementById('fishing-minigame').classList.remove('hidden');
     updateFishingDisplay();
 }
 
+function getRarityDifficulty(rarity) {
+    switch (rarity) {
+        case 'legendary':
+            return 1.2;
+        case 'epic':
+            return 1.1;
+        case 'rare':
+            return 1.0;
+        case 'uncommon':
+            return 0.95;
+        default:
+            return 0.9;
+    }
+}
+
+function setupFishingStage() {
+    const rodStats = game.fishing.rodStats || getRodStats(getEquippedRod());
+    const timeMultiplier = rodStats.timeMultiplier || 1;
+    game.fishing.stageBaseTime = 15;
+    game.fishing.stageTimeRemaining = game.fishing.stageBaseTime * timeMultiplier;
+    const accuracyArea = document.getElementById('fishing-accuracy-area');
+    if (accuracyArea && game.fishing.stageType !== 'targets') {
+        accuracyArea.innerHTML = '';
+    }
+
+    if (game.fishing.stageType === 'track') {
+        game.fishing.indicatorPos = 50;
+        game.fishing.targetPos = 50 + (Math.random() - 0.5) * 120;
+        game.fishing.targetPos = Math.max(20, Math.min(80, game.fishing.targetPos));
+        game.fishing.indicatorSpeed = (2.2 + Math.random() * 1.2) * rodStats.indicatorSpeedMultiplier;
+        game.fishing.targetWidth = 32 + rodStats.targetWidthBonus;
+        game.fishing.progressGain = 0.01 * rodStats.progressGainMultiplier;
+        game.fishing.progressLoss = 0.005 * rodStats.progressLossMultiplier;
+        game.fishing.fishSpeedMultiplier = rodStats.fishSpeedMultiplier * game.fishing.difficultyScale;
+        game.fishing.progress = 0;
+        game.fishing.fishPos = 50;
+        game.fishing.fishVel = 0;
+    } else if (game.fishing.stageType === 'targets') {
+        game.fishing.targetHitsRemaining = 6;
+    } else if (game.fishing.stageType === 'timing') {
+        game.fishing.timingHits = 0;
+        game.fishing.timingHitsNeeded = 2;
+        game.fishing.timingMarkerPos = 50;
+        game.fishing.timingMarkerDir = Math.random() < 0.5 ? -1 : 1;
+        game.fishing.timingTargetWidth = Math.max(12, 24 - (game.fishing.difficultyScale - 0.9) * 10);
+        game.fishing.timingTargetCenter = 20 + Math.random() * 60;
+        game.fishing.timingSpeed = 1.2 * game.fishing.difficultyScale;
+    }
+    updateFishingDisplay();
+    if (game.fishing.stageType === 'targets') {
+        spawnAccuracyTarget();
+    }
+}
+
+function advanceFishingStage() {
+    if (game.fishing.stage < game.fishing.stagesTotal) {
+        game.fishing.stage += 1;
+        game.fishing.stageType = FISHING_STAGE_ORDER[game.fishing.stage - 1];
+        setupFishingStage();
+    } else {
+        endFishing(true);
+    }
+}
+
+function spawnAccuracyTarget() {
+    const area = document.getElementById('fishing-accuracy-area');
+    if (!area) return;
+    area.innerHTML = '';
+    const dot = document.createElement('div');
+    dot.className = 'fishing-target-dot';
+    const size = Math.max(16, 28 - (game.fishing.difficultyScale - 0.9) * 10);
+    dot.style.width = `${size}px`;
+    dot.style.height = `${size}px`;
+    const padding = 10;
+    const maxX = Math.max(0, area.clientWidth - size - padding * 2);
+    const maxY = Math.max(0, area.clientHeight - size - padding * 2);
+    dot.style.left = `${padding + Math.random() * maxX}px`;
+    dot.style.top = `${padding + Math.random() * maxY}px`;
+    dot.addEventListener('click', () => {
+        game.fishing.targetHitsRemaining -= 1;
+        if (game.fishing.targetHitsRemaining > 0) {
+            spawnAccuracyTarget();
+        } else {
+            advanceFishingStage();
+        }
+    });
+    area.appendChild(dot);
+}
+
+function attemptTimingHit() {
+    if (!game.fishing.active || game.fishing.stageType !== 'timing') return;
+    const marker = game.fishing.timingMarkerPos;
+    const center = game.fishing.timingTargetCenter;
+    const half = game.fishing.timingTargetWidth / 2;
+    if (marker >= center - half && marker <= center + half) {
+        game.fishing.timingHits += 1;
+        if (game.fishing.timingHits >= game.fishing.timingHitsNeeded) {
+            advanceFishingStage();
+        } else {
+            game.fishing.timingTargetCenter = 20 + Math.random() * 60;
+        }
+    } else {
+        game.fishing.stageTimeRemaining = Math.max(0, game.fishing.stageTimeRemaining - 1);
+    }
+    updateFishingDisplay();
+}
+
 function updateFishing() {
     if (!game.fishing.active) return;
-    
-    // Control green zone
-    const zoneSpeed = 1.8;
-    if (game.keys['arrowleft'] || game.keys['a']) {
-        game.fishing.targetPos -= zoneSpeed;
-    }
-    if (game.keys['arrowright'] || game.keys['d']) {
-        game.fishing.targetPos += zoneSpeed;
-    }
-    game.fishing.targetPos = Math.max(10, Math.min(90, game.fishing.targetPos));
 
-    // Fish movement
-    const fishSpeed = game.fishing.fishSpeedMultiplier || 1;
-    game.fishing.fishVel += (Math.random() - 0.5) * 0.6 * fishSpeed;
-    const maxFishSpeed = 2.2 * fishSpeed;
-    game.fishing.fishVel = Math.max(-maxFishSpeed, Math.min(maxFishSpeed, game.fishing.fishVel));
-    game.fishing.fishPos += game.fishing.fishVel;
-    if (game.fishing.fishPos > 100 || game.fishing.fishPos < 0) {
-        game.fishing.fishVel *= -1;
-        game.fishing.fishPos = Math.max(0, Math.min(100, game.fishing.fishPos));
-    }
-    game.fishing.indicatorPos = game.fishing.fishPos;
-    
-    const indicatorCenter = game.fishing.indicatorPos;
-    const targetCenter = game.fishing.targetPos;
-    const targetLeft = targetCenter - (game.fishing.targetWidth / 2);
-    const targetRight = targetCenter + (game.fishing.targetWidth / 2);
-    const inTarget = indicatorCenter >= targetLeft && indicatorCenter <= targetRight;
+    if (game.fishing.stageType === 'track') {
+        // Control green zone
+        const zoneSpeed = 1.6;
+        if (game.keys['arrowleft'] || game.keys['a']) {
+            game.fishing.targetPos -= zoneSpeed;
+        }
+        if (game.keys['arrowright'] || game.keys['d']) {
+            game.fishing.targetPos += zoneSpeed;
+        }
+        game.fishing.targetPos = Math.max(10, Math.min(90, game.fishing.targetPos));
 
-    // Update bobber position and water check
-    const shoreX = game.island.x + game.island.width;
-    const waterLevel = getWaterLevel();
-    const bobX = game.fishing.castX;
-    const obstacleTop = getObstacleTopAt(bobX);
-    if (bobX >= shoreX + 10) {
-        game.fishing.castInWater = true;
-        game.fishing.castY = waterLevel + Math.sin(performance.now() / 200) * 2;
-    } else {
-        game.fishing.castInWater = false;
-        game.fishing.castY = obstacleTop - 2;
-    }
+        // Fish movement (slower baseline, harder with rarer fish)
+        const fishSpeed = game.fishing.fishSpeedMultiplier || 1;
+        game.fishing.fishVel += (Math.random() - 0.5) * 0.4 * fishSpeed;
+        const maxFishSpeed = 1.6 * fishSpeed;
+        game.fishing.fishVel = Math.max(-maxFishSpeed, Math.min(maxFishSpeed, game.fishing.fishVel));
+        game.fishing.fishPos += game.fishing.fishVel;
+        if (game.fishing.fishPos > 100 || game.fishing.fishPos < 0) {
+            game.fishing.fishVel *= -1;
+            game.fishing.fishPos = Math.max(0, Math.min(100, game.fishing.fishPos));
+        }
+        game.fishing.indicatorPos = game.fishing.fishPos;
 
-    const gain = game.fishing.progressGain ?? 0.012;
-    const loss = game.fishing.progressLoss ?? 0.006;
-    if (inTarget && game.fishing.castInWater) {
-        game.fishing.progress = Math.min(1, game.fishing.progress + gain);
-    } else {
-        game.fishing.progress = Math.max(0, game.fishing.progress - loss);
-    }
+        const indicatorCenter = game.fishing.indicatorPos;
+        const targetCenter = game.fishing.targetPos;
+        const targetLeft = targetCenter - (game.fishing.targetWidth / 2);
+        const targetRight = targetCenter + (game.fishing.targetWidth / 2);
+        const inTarget = indicatorCenter >= targetLeft && indicatorCenter <= targetRight;
 
-    if (game.fishing.progress >= 1) {
-        if (game.fishing.stage < game.fishing.stagesTotal) {
-            game.fishing.stage += 1;
-            game.fishing.progress = 0;
-            game.fishing.targetWidth = Math.max(12, game.fishing.targetWidth - 3);
-            game.fishing.fishSpeedMultiplier = (game.fishing.fishSpeedMultiplier || 1) * 1.12;
+        // Update bobber position and water check
+        const shoreX = game.island.x + game.island.width;
+        const waterLevel = getWaterLevel();
+        const bobX = game.fishing.castX;
+        const obstacleTop = getObstacleTopAt(bobX);
+        if (bobX >= shoreX + 10) {
+            game.fishing.castInWater = true;
+            game.fishing.castY = waterLevel + Math.sin(performance.now() / 200) * 2;
         } else {
-            endFishing(true);
+            game.fishing.castInWater = false;
+            game.fishing.castY = obstacleTop - 2;
+        }
+
+        const gain = game.fishing.progressGain ?? 0.01;
+        const loss = game.fishing.progressLoss ?? 0.005;
+        if (inTarget && game.fishing.castInWater) {
+            game.fishing.progress = Math.min(1, game.fishing.progress + gain);
+        } else {
+            game.fishing.progress = Math.max(0, game.fishing.progress - loss);
+        }
+
+        if (game.fishing.progress >= 1) {
+            advanceFishingStage();
             return;
+        }
+    } else if (game.fishing.stageType === 'timing') {
+        game.fishing.timingMarkerPos += game.fishing.timingSpeed * game.fishing.timingMarkerDir;
+        if (game.fishing.timingMarkerPos > 100 || game.fishing.timingMarkerPos < 0) {
+            game.fishing.timingMarkerDir *= -1;
+            game.fishing.timingMarkerPos = Math.max(0, Math.min(100, game.fishing.timingMarkerPos));
         }
     }
 
-    // Update timer
-    game.fishing.timer -= 0.016; // ~60fps
-    if (game.fishing.timer <= 0) {
+    // Update stage timer
+    game.fishing.stageTimeRemaining -= 0.016; // ~60fps
+    if (game.fishing.stageTimeRemaining <= 0) {
         endFishing(false);
+        return;
     }
-    
+
     updateFishingDisplay();
 }
 
@@ -1671,23 +1867,62 @@ function updateFishingDisplay() {
     const indicator = document.getElementById('fishing-indicator');
     const target = document.getElementById('fishing-target');
     const timer = document.getElementById('timer-value');
-    
-    if (indicator) {
+    const stageLabel = document.getElementById('fishing-stage-label');
+    const barContainer = document.getElementById('fishing-bar-container');
+    const accuracyArea = document.getElementById('fishing-accuracy-area');
+    const timingArea = document.getElementById('fishing-timing-area');
+    const timingTarget = document.getElementById('timing-target');
+    const timingMarker = document.getElementById('timing-marker');
+    const timingHits = document.getElementById('timing-hits');
+
+    if (stageLabel) {
+        const stageName = game.fishing.stageType === 'track'
+            ? 'Reel'
+            : game.fishing.stageType === 'targets'
+                ? 'Aim'
+                : 'Timing';
+        stageLabel.textContent = `Stage ${game.fishing.stage}/${game.fishing.stagesTotal} - ${stageName}`;
+    }
+
+    if (barContainer) {
+        barContainer.classList.toggle('hidden', game.fishing.stageType !== 'track');
+    }
+    if (accuracyArea) {
+        accuracyArea.classList.toggle('hidden', game.fishing.stageType !== 'targets');
+    }
+    if (timingArea) {
+        timingArea.classList.toggle('hidden', game.fishing.stageType !== 'timing');
+    }
+
+    if (indicator && game.fishing.stageType === 'track') {
         const pos = Math.max(0, Math.min(100, game.fishing.indicatorPos));
         indicator.style.left = `${pos - 1}%`;
     }
-    if (target) {
+    if (target && game.fishing.stageType === 'track') {
         const targetPos = Math.max(0, Math.min(100, game.fishing.targetPos - game.fishing.targetWidth / 2));
         target.style.left = `${targetPos}%`;
         target.style.width = `${game.fishing.targetWidth}%`;
     }
+    if (timingTarget && game.fishing.stageType === 'timing') {
+        const timingLeft = Math.max(0, Math.min(100, game.fishing.timingTargetCenter - game.fishing.timingTargetWidth / 2));
+        timingTarget.style.left = `${timingLeft}%`;
+        timingTarget.style.width = `${game.fishing.timingTargetWidth}%`;
+    }
+    if (timingMarker && game.fishing.stageType === 'timing') {
+        timingMarker.style.left = `${Math.max(0, Math.min(100, game.fishing.timingMarkerPos))}%`;
+    }
+    if (timingHits && game.fishing.stageType === 'timing') {
+        timingHits.textContent = `Hits: ${game.fishing.timingHits}/${game.fishing.timingHitsNeeded}`;
+    }
     if (timer) {
-        const timeLeft = Math.max(0, Math.ceil(game.fishing.timer));
+        const timeLeft = Math.max(0, Math.ceil(game.fishing.stageTimeRemaining));
         const progress = Math.round(game.fishing.progress * 100);
         const waterText = game.fishing.castInWater ? 'In Water' : 'No Water';
-        timer.textContent = `${timeLeft}s | Stage ${game.fishing.stage}/${game.fishing.stagesTotal} | Reel ${progress}% | ${waterText}`;
+        const progressText = game.fishing.stageType === 'track' ? `Reel ${progress}%` : 'Complete the stage';
+        timer.textContent = `${timeLeft}s | ${progressText} | ${waterText}`;
     }
 }
+
 
 function catchFish() {
     const indicatorCenter = game.fishing.indicatorPos;
@@ -1720,8 +1955,8 @@ function endFishing(success) {
     document.getElementById('fishing-minigame').classList.add('hidden');
     if (success) {
         const rodStats = game.fishing.rodStats;
-        const rarity = getRandomRarity(rodStats);
-        const rarityChance = getRarityWeights(rodStats)[rarity] * 100;
+        const rarity = game.fishing.pendingRarity || getRandomRarity(rodStats);
+        const rarityChance = game.fishing.pendingRarityChance || (getRarityWeights(rodStats)[rarity] * 100);
         const fishList = FISH_TYPES[rarity];
         const fish = fishList[Math.floor(Math.random() * fishList.length)];
         const weight = generateFishWeight(fish, rarity);
@@ -1733,6 +1968,8 @@ function endFishing(success) {
         showToast('Missed! Try again.', 'error');
     }
     game.fishing.rodStats = null;
+    game.fishing.pendingRarity = null;
+    game.fishing.pendingRarityChance = 0;
 }
 
 function getFishWeightRange(fish, rarity) {
@@ -3051,6 +3288,54 @@ function drawShopKeeper() {
     }
 }
 
+function drawRain(ctx, now) {
+    if (game.weather.type !== 'rain') return;
+    const viewLeft = game.camera.x - 120;
+    const viewTop = game.camera.y - 120;
+    const viewRight = game.camera.x + game.canvas.width + 120;
+    const viewBottom = game.camera.y + game.canvas.height + 120;
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    game.weather.drops.forEach((drop) => {
+        drop.y += drop.speed;
+        if (drop.y > viewBottom) {
+            drop.y = viewTop - Math.random() * 120;
+            drop.x = viewLeft + Math.random() * (viewRight - viewLeft);
+        }
+        if (drop.x < viewLeft || drop.x > viewRight) {
+            drop.x = viewLeft + Math.random() * (viewRight - viewLeft);
+        }
+        ctx.strokeStyle = `rgba(210, 225, 245, ${drop.alpha})`;
+        ctx.beginPath();
+        ctx.moveTo(drop.x, drop.y);
+        ctx.lineTo(drop.x - 3, drop.y + drop.length);
+        ctx.stroke();
+    });
+
+    const shoreX = game.island.x + game.island.width;
+    const waterY = getWaterLevel();
+    const waterLeft = Math.max(shoreX, viewLeft);
+    const waterWidth = Math.max(0, viewRight - waterLeft);
+    ctx.strokeStyle = 'rgba(220, 235, 255, 0.35)';
+    for (let i = 0; i < 18; i++) {
+        const rx = waterLeft + ((i * 97 + now * 0.05) % Math.max(1, waterWidth));
+        const ry = waterY + Math.sin(now * 0.006 + i) * 2;
+        ctx.beginPath();
+        ctx.ellipse(rx, ry, 6, 2, 0, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
+    ctx.fillStyle = 'rgba(220, 235, 255, 0.35)';
+    for (let i = 0; i < 14; i++) {
+        const rx = game.island.x + ((i * 83 + now * 0.04) % game.island.width);
+        const ry = groundSurfaceAt(rx) + 2;
+        ctx.beginPath();
+        ctx.arc(rx, ry, 2, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.restore();
+}
+
 function render() {
     const ctx = game.ctx;
     const zoom = game.camera.zoom;
@@ -3068,9 +3353,15 @@ function render() {
     
     // Clear canvas with sky gradient
     const skyGradient = ctx.createLinearGradient(0, 0, 0, game.canvas.height);
-    skyGradient.addColorStop(0, '#87CEEB');
-    skyGradient.addColorStop(0.6, '#98D8C8');
-    skyGradient.addColorStop(1, '#F7DC6F');
+    if (game.weather.type === 'rain') {
+        skyGradient.addColorStop(0, '#7f93a3');
+        skyGradient.addColorStop(0.6, '#8da1ad');
+        skyGradient.addColorStop(1, '#97a5aa');
+    } else {
+        skyGradient.addColorStop(0, '#87CEEB');
+        skyGradient.addColorStop(0.6, '#98D8C8');
+        skyGradient.addColorStop(1, '#F7DC6F');
+    }
     ctx.fillStyle = skyGradient;
     ctx.fillRect(0, 0, game.canvas.width, game.canvas.height);
     
@@ -3303,7 +3594,16 @@ function render() {
         }
     }
 
+    drawRain(ctx, now);
+
     ctx.restore();
+
+    if (game.weather.type === 'rain') {
+        ctx.save();
+        ctx.fillStyle = 'rgba(90, 100, 110, 0.2)';
+        ctx.fillRect(0, 0, game.canvas.width, game.canvas.height);
+        ctx.restore();
+    }
 
     // Draw money with better styling
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
@@ -3330,6 +3630,7 @@ function drawCloud(x, y) {
 function gameLoop() {
     updatePlayer();
     updateFishing();
+    updateWeather();
     
     // Update palm tree animations
     game.palmTrees.forEach(tree => {

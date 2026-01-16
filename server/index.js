@@ -9,6 +9,25 @@ const wss = new WebSocketServer({ port: PORT });
 const clients = new Map();
 const dataDir = path.join(process.cwd(), 'data');
 const dataFile = path.join(dataDir, 'players.json');
+const weatherState = { type: 'sunny' };
+
+function broadcast(payload) {
+  const message = JSON.stringify(payload);
+  for (const client of clients.keys()) {
+    client.send(message);
+  }
+}
+
+function setWeather(type) {
+  if (!['sunny', 'rain'].includes(type)) return;
+  weatherState.type = type;
+  broadcast({ type: 'weather', weather: type });
+}
+
+setInterval(() => {
+  const next = weatherState.type === 'rain' ? 'sunny' : 'rain';
+  setWeather(next);
+}, 180000);
 
 function loadStore() {
   try {
@@ -50,7 +69,7 @@ wss.on('connection', (ws) => {
     heldRarity: null
   });
 
-  ws.send(JSON.stringify({ type: 'welcome', id }));
+  ws.send(JSON.stringify({ type: 'welcome', id, weather: weatherState.type }));
 
   ws.on('message', (data) => {
     let msg;
@@ -100,6 +119,8 @@ wss.on('connection', (ws) => {
       if (!record || record.passcode !== passcode) return;
       store[name] = { passcode, state };
       saveStore(store);
+    } else if (msg.type === 'weather-set') {
+      setWeather(msg.weather);
     } else if (msg.type === 'move') {
       const player = clients.get(ws);
       if (!player) return;
@@ -114,24 +135,18 @@ wss.on('connection', (ws) => {
       player.heldWeight = typeof msg.heldWeight === 'number' ? msg.heldWeight : 0;
       player.heldRarity = msg.heldRarity || null;
 
-      const payload = JSON.stringify({
+      broadcast({
         type: 'players',
         players: Array.from(clients.values())
       });
-
-      for (const client of clients.keys()) {
-        client.send(payload);
-      }
     } else if (msg.type === 'dev-broadcast') {
       const sender = clients.get(ws);
-      const payload = JSON.stringify({
+      const payload = {
         type: 'dev-broadcast',
         text: msg.text || '',
         fromName: sender?.name || 'Dev'
-      });
-      for (const client of clients.keys()) {
-        client.send(payload);
-      }
+      };
+      broadcast(payload);
     } else if (msg.type === 'gift' || msg.type === 'trade-request' || msg.type === 'trade-accept' || msg.type === 'trade-decline') {
       const target = findClientById(msg.toId);
       if (!target) return;

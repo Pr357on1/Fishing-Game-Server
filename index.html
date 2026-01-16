@@ -176,11 +176,20 @@
             </div>
             <div id="fishing-minigame" class="panel hidden">
                 <h2>Catch the Fish!</h2>
+                <div id="fishing-stage-label" class="fishing-stage-label">Stage 1/3</div>
                 <div id="fishing-bar-container">
                     <div id="fishing-bar">
                         <div id="fishing-indicator"></div>
                         <div id="fishing-target"></div>
                     </div>
+                </div>
+                <div id="fishing-accuracy-area" class="fishing-stage hidden"></div>
+                <div id="fishing-timing-area" class="fishing-stage hidden">
+                    <div id="timing-bar">
+                        <div id="timing-target"></div>
+                        <div id="timing-marker"></div>
+                    </div>
+                    <div id="timing-hits">Hits: 0/0</div>
                 </div>
                 <div id="fishing-timer">Time: <span id="timer-value">10</span>s</div>
             </div>
@@ -209,6 +218,11 @@
                     <label for="dev-broadcast">Global Message</label>
                     <input id="dev-broadcast" type="text" maxlength="120" placeholder="Message to all players">
                     <button id="dev-broadcast-send" class="close-btn">Send</button>
+                </div>
+                <div class="dev-row">
+                    <label>Weather</label>
+                    <button id="dev-weather-sunny" class="close-btn">Sunny</button>
+                    <button id="dev-weather-rain" class="close-btn">Rain</button>
                 </div>
                 <button class="close-btn panel-close" data-panel="dev-panel">Close</button>
             </div>
