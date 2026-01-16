@@ -38,6 +38,7 @@ const game = {
         onGround: true,
         facingRight: true,
         flying: false,
+        swimming: false,
         jumpCooldown: 0
     },
     camera: {
@@ -131,7 +132,8 @@ const game = {
     weather: {
         type: 'sunny',
         nextToggleAt: 0,
-        drops: []
+        drops: [],
+        splashes: []
     },
     multiplayer: {
         ws: null,
@@ -155,7 +157,9 @@ const game = {
         saveDirty: false,
         lastSave: 0,
         hasLoadedState: false
-    }
+    },
+    lastFrameTime: 0,
+    frameDelta: 0.016
 };
 
 // Fish Types with Rarities (using pixel art sprites)
@@ -713,6 +717,7 @@ function initWeather() {
     const now = performance.now();
     game.weather.nextToggleAt = now + WEATHER_TOGGLE_MS;
     game.weather.drops = [];
+    game.weather.splashes = [];
     for (let i = 0; i < 140; i++) {
         game.weather.drops.push({
             x: Math.random() * CANVAS_WIDTH,
@@ -1490,7 +1495,7 @@ function updatePlayer() {
             if (Math.abs(game.player.vx) < 0.1) game.player.vx = 0;
         }
         
-        // Apply gravity or flying control
+        // Apply gravity or flying/swimming control
         if (game.player.flying) {
             if (game.keys['w'] || game.keys['arrowup']) {
                 game.player.vy = -FLY_SPEED;
@@ -1499,6 +1504,7 @@ function updatePlayer() {
             } else {
                 game.player.vy = 0;
             }
+            game.player.swimming = false;
         } else {
             game.player.vy += GRAVITY;
         }
@@ -1507,9 +1513,9 @@ function updatePlayer() {
         game.player.x += game.player.vx;
         game.player.y += game.player.vy;
 
-        // Keep player on island/dock bounds
+        // Keep player on island bounds (allow swimming past dock)
         const minX = game.island.x + 10;
-        const maxX = game.island.dock.x + game.island.dock.width - game.player.width + 10;
+        const maxX = game.island.x + game.island.width + 600;
         if (game.player.x < minX) {
             game.player.x = minX;
             game.player.vx = 0;
@@ -1518,48 +1524,81 @@ function updatePlayer() {
             game.player.vx = 0;
         }
         
+        // Water check
+        const shoreX = game.island.x + game.island.width;
+        const waterLevel = getWaterLevel();
+        const playerBottom = game.player.y + game.player.height;
+        const inWater = game.player.x + game.player.width / 2 > shoreX + 10 && playerBottom > waterLevel - 6;
+        const onLand = game.player.x + game.player.width / 2 <= shoreX + 6;
+        game.player.swimming = inWater;
+
+        // Swimming movement
+        if (game.player.swimming) {
+            const swimSpeed = 1.8;
+            if (game.keys['w'] || game.keys['arrowup']) {
+                game.player.vy = -swimSpeed;
+            } else if (game.keys['s'] || game.keys['arrowdown']) {
+                game.player.vy = swimSpeed;
+            } else {
+                game.player.vy *= 0.85;
+            }
+            game.player.vy += GRAVITY * 0.15;
+        }
+
         // Collision with ground and platforms
         game.player.onGround = false;
-        const playerBottom = game.player.y + game.player.height;
         const playerLeft = game.player.x;
         const playerRight = game.player.x + game.player.width;
         const groundY = groundSurfaceAt(game.player.x + game.player.width / 2);
         
-        // Check main ground - ensure player is always on or above ground
-        if (playerBottom > groundY || (!game.player.onGround && playerBottom >= groundY - 1)) {
-            game.player.y = groundY - game.player.height;
-            game.player.vy = 0;
-            game.player.onGround = true;
-        }
-        
-        // Check platforms
-        game.ground.platforms.forEach(platform => {
-            if (playerBottom >= platform.y && 
-                game.player.y < platform.y &&
-                playerRight > platform.x && 
-                playerLeft < platform.x + platform.width &&
-                game.player.vy >= 0) {
-                game.player.y = platform.y - game.player.height;
+        if (!game.player.swimming && onLand) {
+            // Check main ground - ensure player is always on or above ground
+            if (playerBottom > groundY || (!game.player.onGround && playerBottom >= groundY - 1)) {
+                game.player.y = groundY - game.player.height;
                 game.player.vy = 0;
                 game.player.onGround = true;
             }
-        });
+            
+            // Check platforms
+            game.ground.platforms.forEach(platform => {
+                if (playerBottom >= platform.y && 
+                    game.player.y < platform.y &&
+                    playerRight > platform.x && 
+                    playerLeft < platform.x + platform.width &&
+                    game.player.vy >= 0) {
+                    game.player.y = platform.y - game.player.height;
+                    game.player.vy = 0;
+                    game.player.onGround = true;
+                }
+            });
 
-        // Check dock platform
-        const dock = game.island.dock;
-        if (playerBottom >= dock.y - 6 &&
-            game.player.y < dock.y - 6 &&
-            playerRight > dock.x &&
-            playerLeft < dock.x + dock.width &&
-            game.player.vy >= 0) {
-            game.player.y = dock.y - game.player.height;
-            game.player.vy = 0;
-            game.player.onGround = true;
+        }
+
+        // Check dock platform (allow on dock even past shore)
+        if (!game.player.swimming) {
+            const dock = game.island.dock;
+            if (playerBottom >= dock.y - 6 &&
+                game.player.y < dock.y - 6 &&
+                playerRight > dock.x &&
+                playerLeft < dock.x + dock.width &&
+                game.player.vy >= 0) {
+                game.player.y = dock.y - game.player.height;
+                game.player.vy = 0;
+                game.player.onGround = true;
+            }
         }
         
         // Update jump cooldown
         if (game.player.jumpCooldown > 0) {
             game.player.jumpCooldown--;
+        }
+
+        if (game.player.swimming && game.player.y > waterLevel + 220) {
+            game.player.x = game.locations.dock.x;
+            game.player.y = game.locations.dock.y;
+            game.player.vx = 0;
+            game.player.vy = 0;
+            game.player.swimming = false;
         }
         
         // Check shop keeper interaction
@@ -1577,6 +1616,9 @@ function updatePlayer() {
     // Follow player vertically - center camera on player's Y position
     // This ensures the player is always visible
     game.camera.targetY = (game.player.y + game.player.height / 2) - game.canvas.height / 2;
+    if (game.player.onGround && Math.abs(game.player.vx) > 0.2) {
+        game.camera.targetY += Math.sin(performance.now() / 160) * 4;
+    }
     
     game.camera.x += (game.camera.targetX - game.camera.x) * CAMERA_SMOOTH;
     game.camera.y += (game.camera.targetY - game.camera.y) * CAMERA_SMOOTH;
@@ -1699,7 +1741,7 @@ function getRarityDifficulty(rarity) {
 function setupFishingStage() {
     const rodStats = game.fishing.rodStats || getRodStats(getEquippedRod());
     const timeMultiplier = rodStats.timeMultiplier || 1;
-    game.fishing.stageBaseTime = 15;
+    game.fishing.stageBaseTime = game.fishing.stageType === 'targets' ? 10 : 15;
     game.fishing.stageTimeRemaining = game.fishing.stageBaseTime * timeMultiplier;
     const accuracyArea = document.getElementById('fishing-accuracy-area');
     if (accuracyArea && game.fishing.stageType !== 'targets') {
@@ -1788,8 +1830,9 @@ function attemptTimingHit() {
     updateFishingDisplay();
 }
 
-function updateFishing() {
+function updateFishing(dt = 0.016) {
     if (!game.fishing.active) return;
+    const timeScale = dt / 0.016;
 
     if (game.fishing.stageType === 'track') {
         // Control green zone
@@ -1804,10 +1847,10 @@ function updateFishing() {
 
         // Fish movement (slower baseline, harder with rarer fish)
         const fishSpeed = game.fishing.fishSpeedMultiplier || 1;
-        game.fishing.fishVel += (Math.random() - 0.5) * 0.4 * fishSpeed;
+        game.fishing.fishVel += (Math.random() - 0.5) * 0.4 * fishSpeed * timeScale;
         const maxFishSpeed = 1.6 * fishSpeed;
         game.fishing.fishVel = Math.max(-maxFishSpeed, Math.min(maxFishSpeed, game.fishing.fishVel));
-        game.fishing.fishPos += game.fishing.fishVel;
+        game.fishing.fishPos += game.fishing.fishVel * timeScale;
         if (game.fishing.fishPos > 100 || game.fishing.fishPos < 0) {
             game.fishing.fishVel *= -1;
             game.fishing.fishPos = Math.max(0, Math.min(100, game.fishing.fishPos));
@@ -1846,7 +1889,7 @@ function updateFishing() {
             return;
         }
     } else if (game.fishing.stageType === 'timing') {
-        game.fishing.timingMarkerPos += game.fishing.timingSpeed * game.fishing.timingMarkerDir;
+        game.fishing.timingMarkerPos += game.fishing.timingSpeed * game.fishing.timingMarkerDir * timeScale;
         if (game.fishing.timingMarkerPos > 100 || game.fishing.timingMarkerPos < 0) {
             game.fishing.timingMarkerDir *= -1;
             game.fishing.timingMarkerPos = Math.max(0, Math.min(100, game.fishing.timingMarkerPos));
@@ -1854,7 +1897,7 @@ function updateFishing() {
     }
 
     // Update stage timer
-    game.fishing.stageTimeRemaining -= 0.016; // ~60fps
+    game.fishing.stageTimeRemaining -= dt;
     if (game.fishing.stageTimeRemaining <= 0) {
         endFishing(false);
         return;
@@ -3290,14 +3333,88 @@ function drawShopKeeper() {
 
 function drawRain(ctx, now) {
     if (game.weather.type !== 'rain') return;
+    const dt = game.frameDelta || 0.016;
     const viewLeft = game.camera.x - 120;
     const viewTop = game.camera.y - 120;
     const viewRight = game.camera.x + game.canvas.width + 120;
     const viewBottom = game.camera.y + game.canvas.height + 120;
+    const shoreX = game.island.x + game.island.width;
+    const waterY = getWaterLevel();
+
+    game.weather.splashes = (game.weather.splashes || []).filter((splash) => splash.life > 0);
+    game.weather.splashes.forEach((splash) => {
+        splash.life -= dt;
+        const alpha = Math.max(0, splash.life / splash.ttl);
+        ctx.save();
+        if (splash.type === 'water') {
+            ctx.strokeStyle = `rgba(210, 235, 255, ${0.5 * alpha})`;
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.ellipse(splash.x, splash.y, 6 + (1 - alpha) * 6, 2 + (1 - alpha) * 2, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        } else if (splash.type === 'leaf') {
+            ctx.strokeStyle = `rgba(200, 235, 210, ${0.6 * alpha})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(splash.x - 2, splash.y - 2);
+            ctx.lineTo(splash.x + 2, splash.y + 2);
+            ctx.stroke();
+        } else {
+            ctx.fillStyle = `rgba(210, 235, 255, ${0.4 * alpha})`;
+            ctx.beginPath();
+            ctx.arc(splash.x, splash.y, 2 + (1 - alpha) * 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+    });
+
     ctx.save();
     ctx.lineWidth = 1.5;
     game.weather.drops.forEach((drop) => {
-        drop.y += drop.speed;
+        const step = drop.speed * (dt / 0.016);
+        const nextY = drop.y + step;
+        const hitY = nextY + drop.length;
+
+        let hitType = null;
+        let hitPosY = null;
+        for (const tree of game.palmTrees) {
+            const baseY = groundSurfaceAt(tree.x);
+            const canopyTop = baseY - 120 * tree.size;
+            const canopyBottom = baseY - 30 * tree.size;
+            if (Math.abs(drop.x - tree.x) < 36 * tree.size && hitY >= canopyTop && hitY <= canopyBottom) {
+                hitType = 'leaf';
+                hitPosY = hitY;
+                break;
+            }
+        }
+
+        if (!hitType) {
+            if (drop.x >= shoreX + 6 && hitY >= waterY) {
+                hitType = 'water';
+                hitPosY = waterY;
+            } else if (drop.x < shoreX + 6) {
+                const groundY = groundSurfaceAt(drop.x);
+                if (hitY >= groundY) {
+                    hitType = 'ground';
+                    hitPosY = groundY;
+                }
+            }
+        }
+
+        if (hitType) {
+            game.weather.splashes.push({
+                x: drop.x,
+                y: hitPosY,
+                life: 0.35,
+                ttl: 0.35,
+                type: hitType
+            });
+            drop.y = viewTop - Math.random() * 120;
+            drop.x = viewLeft + Math.random() * (viewRight - viewLeft);
+            return;
+        }
+
+        drop.y = nextY;
         if (drop.y > viewBottom) {
             drop.y = viewTop - Math.random() * 120;
             drop.x = viewLeft + Math.random() * (viewRight - viewLeft);
@@ -3312,8 +3429,6 @@ function drawRain(ctx, now) {
         ctx.stroke();
     });
 
-    const shoreX = game.island.x + game.island.width;
-    const waterY = getWaterLevel();
     const waterLeft = Math.max(shoreX, viewLeft);
     const waterWidth = Math.max(0, viewRight - waterLeft);
     ctx.strokeStyle = 'rgba(220, 235, 255, 0.35)';
@@ -3460,15 +3575,18 @@ function render() {
     // Draw player (simple blocky style, centered)
     const playerX = game.player.renderX - game.camera.x;
     const playerY = game.player.renderY - game.camera.y;
-    const bob = Math.max(0, Math.sin(timeSeconds * 6)) * 1.5;
     const isWalking = Math.abs(game.player.vx) > 0.2;
-    const walkCycle = isWalking ? Math.sin(timeSeconds * 10) * 4 : 0;
+    const isSwimming = game.player.swimming;
+    const bob = isSwimming ? Math.sin(timeSeconds * 5) * 1.5 : Math.max(0, Math.sin(timeSeconds * 6)) * 1.5;
+    const walkCycle = isSwimming ? Math.sin(timeSeconds * 6) * 3 : (isWalking ? Math.sin(timeSeconds * 10) * 4 : 0);
     
     // Player shadow
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-    ctx.beginPath();
-    ctx.ellipse(playerX + game.player.width / 2, playerY + game.player.height + 6, 16, 6, 0, 0, Math.PI * 2);
-    ctx.fill();
+    if (!isSwimming) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+        ctx.beginPath();
+        ctx.ellipse(playerX + game.player.width / 2, playerY + game.player.height + 6, 16, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+    }
 
     const headSize = 22;
     const bodyWidth = 24;
@@ -3628,8 +3746,12 @@ function drawCloud(x, y) {
 
 // Game Loop
 function gameLoop() {
+    const now = performance.now();
+    const dt = game.lastFrameTime ? (now - game.lastFrameTime) / 1000 : 0.016;
+    game.lastFrameTime = now;
+    game.frameDelta = dt;
     updatePlayer();
-    updateFishing();
+    updateFishing(dt);
     updateWeather();
     
     // Update palm tree animations
