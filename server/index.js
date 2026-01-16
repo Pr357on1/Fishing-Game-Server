@@ -11,6 +11,7 @@ const clients = new Map();
 const persistentRoot = process.env.RENDER_PERSISTENT_DIR || '/var/data';
 const dataDir = fs.existsSync(persistentRoot) ? persistentRoot : path.join(process.cwd(), 'data');
 const dataFile = path.join(dataDir, 'players.json');
+const memoryStore = {};
 
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -77,14 +78,26 @@ function saveStore(store) {
 async function loadPlayerRecord(name) {
   const trimmed = String(name || '').trim();
   const needle = trimmed.toLowerCase();
+  if (memoryStore[trimmed]) {
+    return { ...memoryStore[trimmed], name: trimmed };
+  }
+  const memKey = Object.keys(memoryStore).find((key) => key.toLowerCase() === needle);
+  if (memKey) {
+    return { ...memoryStore[memKey], name: memKey };
+  }
   if (supabase) {
     const { data, error } = await supabase
       .from('players')
       .select('name, passcode, state')
       .eq('name', trimmed)
       .maybeSingle();
-    if (error) return null;
-    if (data) return data || null;
+    if (error) {
+      console.warn('Supabase load error, falling back to local store.', error.message || error);
+    }
+    if (data) {
+      memoryStore[data.name] = { passcode: data.passcode, state: data.state };
+      return data || null;
+    }
     if (!needle) return null;
     const { data: fallback, error: fallbackError } = await supabase
       .from('players')
@@ -92,28 +105,43 @@ async function loadPlayerRecord(name) {
       .ilike('name', trimmed)
       .limit(1)
       .maybeSingle();
-    if (fallbackError) return null;
-    return fallback || null;
+    if (fallbackError) {
+      console.warn('Supabase fallback error, falling back to local store.', fallbackError.message || fallbackError);
+    }
+    if (fallback) {
+      memoryStore[fallback.name] = { passcode: fallback.passcode, state: fallback.state };
+      return fallback || null;
+    }
   }
   const store = loadStore();
   if (store[trimmed]) {
+    memoryStore[trimmed] = store[trimmed];
     return { ...store[trimmed], name: trimmed };
   }
   if (!needle) return null;
   const matchKey = Object.keys(store).find((key) => key.toLowerCase() === needle);
   if (!matchKey) return null;
+  memoryStore[matchKey] = store[matchKey];
   return { ...store[matchKey], name: matchKey };
 }
 
 async function savePlayerRecord(name, passcode, state) {
+  const trimmed = String(name || '').trim();
+  if (trimmed) {
+    memoryStore[trimmed] = { passcode, state };
+  }
   if (supabase) {
-    await supabase
+    const { error } = await supabase
       .from('players')
       .upsert({ name, passcode, state, updated_at: new Date().toISOString() });
-    return;
+    if (error) {
+      console.warn('Supabase save error, falling back to local store.', error.message || error);
+    } else {
+      return;
+    }
   }
   const store = loadStore();
-  store[name] = { passcode, state };
+  store[trimmed || name] = { passcode, state };
   saveStore(store);
 }
 
