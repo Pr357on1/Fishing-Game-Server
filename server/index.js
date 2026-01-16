@@ -1,6 +1,7 @@
 import { WebSocketServer } from 'ws';
 import fs from 'fs';
 import path from 'path';
+import { createClient } from '@supabase/supabase-js';
 
 const PORT = process.env.PORT || 8080;
 
@@ -10,6 +11,10 @@ const clients = new Map();
 const persistentRoot = process.env.RENDER_PERSISTENT_DIR || '/var/data';
 const dataDir = fs.existsSync(persistentRoot) ? persistentRoot : path.join(process.cwd(), 'data');
 const dataFile = path.join(dataDir, 'players.json');
+
+const supabaseUrl = process.env.SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 const RAIN_BOUNDS = {
   minX: -120,
   maxX: 2540,
@@ -69,6 +74,32 @@ function saveStore(store) {
   fs.writeFileSync(dataFile, JSON.stringify(store, null, 2));
 }
 
+async function loadPlayerRecord(name) {
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('players')
+      .select('name, passcode, state')
+      .eq('name', name)
+      .maybeSingle();
+    if (error) return null;
+    return data || null;
+  }
+  const store = loadStore();
+  return store[name] || null;
+}
+
+async function savePlayerRecord(name, passcode, state) {
+  if (supabase) {
+    await supabase
+      .from('players')
+      .upsert({ name, passcode, state, updated_at: new Date().toISOString() });
+    return;
+  }
+  const store = loadStore();
+  store[name] = { passcode, state };
+  saveStore(store);
+}
+
 function findClientById(id) {
   for (const [client, data] of clients.entries()) {
     if (data.id === id) return client;
@@ -103,7 +134,10 @@ wss.on('connection', (ws) => {
     } catch {
       return;
     }
+    handleMessage(msg).catch(() => {});
+  });
 
+  async function handleMessage(msg) {
     if (msg.type === 'auth') {
       const name = String(msg.name || '').slice(0, 16);
       const passcode = String(msg.passcode || '');
@@ -111,8 +145,7 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'auth-error', message: 'Name and passcode required.' }));
         return;
       }
-      const store = loadStore();
-      const record = store[name];
+      const record = await loadPlayerRecord(name);
       if (record) {
         if (record.passcode !== passcode) {
           ws.send(JSON.stringify({ type: 'auth-error', message: 'Passcode incorrect.' }));
@@ -125,8 +158,7 @@ wss.on('connection', (ws) => {
         }
         ws.send(JSON.stringify({ type: 'auth-ok', state: record.state || null }));
       } else {
-        store[name] = { passcode, state: null };
-        saveStore(store);
+        await savePlayerRecord(name, passcode, null);
         const player = clients.get(ws);
         if (player) {
           player.name = name;
@@ -139,11 +171,9 @@ wss.on('connection', (ws) => {
       const name = state.name;
       const passcode = state.passcode;
       if (!name || !passcode) return;
-      const store = loadStore();
-      const record = store[name];
+      const record = await loadPlayerRecord(name);
       if (!record || record.passcode !== passcode) return;
-      store[name] = { passcode, state };
-      saveStore(store);
+      await savePlayerRecord(name, passcode, state);
     } else if (msg.type === 'weather-set') {
       setWeather(msg.weather);
     } else if (msg.type === 'ping') {
@@ -207,7 +237,7 @@ wss.on('connection', (ws) => {
       };
       target.send(JSON.stringify(outgoing));
     }
-  });
+  }
 
   ws.on('close', () => {
     clients.delete(ws);
