@@ -61,6 +61,16 @@ wss.on('connection', (ws) => {
       for (const client of clients.keys()) {
         client.send(payload);
       }
+    } else if (msg.type === 'dev-broadcast') {
+      const sender = clients.get(ws);
+      const payload = JSON.stringify({
+        type: 'dev-broadcast',
+        text: msg.text || '',
+        fromName: sender?.name || 'Dev'
+      });
+      for (const client of clients.keys()) {
+        client.send(payload);
+      }
     } else if (msg.type === 'gift' || msg.type === 'trade-request' || msg.type === 'trade-accept' || msg.type === 'trade-decline') {
       const target = findClientById(msg.toId);
       if (!target) return;

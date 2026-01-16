@@ -124,7 +124,9 @@ const game = {
         selectedItem: null,
         tradeOffer: null,
         tradePending: null,
-        tradeRespond: null
+        tradeRespond: null,
+        interactCooldown: 0,
+        remotePlayers: {}
     }
 };
 
@@ -522,6 +524,7 @@ function connectMultiplayer() {
         } else if (msg.type === 'players') {
             game.multiplayer.players = msg.players || [];
             refreshMultiplayerUI();
+            syncRemotePlayers();
         } else if (msg.type === 'gift') {
             if (msg.item) {
                 addToInventory(msg.item);
@@ -542,6 +545,8 @@ function connectMultiplayer() {
         } else if (msg.type === 'trade-decline') {
             showToast(`${msg.fromName || 'Player'} declined the trade.`, 'info');
             game.multiplayer.tradePending = null;
+        } else if (msg.type === 'dev-broadcast') {
+            showToast(msg.text || 'Broadcast message', 'info');
         }
     };
 
@@ -557,6 +562,57 @@ function connectMultiplayer() {
     ws.onerror = () => {
         ws.close();
     };
+}
+
+function syncRemotePlayers() {
+    const next = {};
+    (game.multiplayer.players || []).forEach((player) => {
+        if (player.id === game.multiplayer.id) return;
+        const existing = game.multiplayer.remotePlayers[player.id];
+        if (existing) {
+            existing.x = player.x;
+            existing.y = player.y;
+            existing.name = player.name;
+            existing.avatar = player.avatar;
+            existing.facingRight = player.facingRight;
+            existing.hasRod = player.hasRod;
+            existing.rodSprite = player.rodSprite;
+            existing.heldSprite = player.heldSprite;
+            existing.heldWeight = player.heldWeight;
+            existing.heldRarity = player.heldRarity;
+            next[player.id] = existing;
+        } else {
+            next[player.id] = {
+                id: player.id,
+                x: player.x,
+                y: player.y,
+                renderX: player.x,
+                renderY: player.y,
+                name: player.name,
+                avatar: player.avatar,
+                facingRight: player.facingRight,
+                hasRod: player.hasRod,
+                rodSprite: player.rodSprite,
+                heldSprite: player.heldSprite,
+                heldWeight: player.heldWeight,
+                heldRarity: player.heldRarity
+            };
+        }
+    });
+    game.multiplayer.remotePlayers = next;
+}
+
+function sendDevBroadcast(text) {
+    const ws = game.multiplayer.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        showToast('Not connected to server.', 'error');
+        return;
+    }
+    ws.send(JSON.stringify({
+        type: 'dev-broadcast',
+        text
+    }));
+    showToast('Broadcast sent.', 'success');
 }
 
 function initMultiplayerUI() {
@@ -1019,6 +1075,21 @@ function setupEventListeners() {
             devSpeedValue.textContent = PLAYER_SPEED.toFixed(1);
         });
     }
+
+    const devBroadcast = document.getElementById('dev-broadcast');
+    const devBroadcastSend = document.getElementById('dev-broadcast-send');
+    if (devBroadcast && devBroadcastSend) {
+        devBroadcastSend.addEventListener('click', () => {
+            if (!game.devMode) {
+                showToast('Enable dev mode first.', 'error');
+                return;
+            }
+            const text = devBroadcast.value.trim();
+            if (!text) return;
+            sendDevBroadcast(text);
+            devBroadcast.value = '';
+        });
+    }
     const devMoneyInput = document.getElementById('dev-money-input');
     const devMoneySet = document.getElementById('dev-money-set');
     if (devMoneyInput && devMoneySet) {
@@ -1240,6 +1311,41 @@ function updatePlayer() {
     game.player.renderY += (game.player.y - game.player.renderY) * PLAYER_RENDER_SMOOTH;
 
     syncMultiplayer();
+    updateRemotePlayers();
+    handlePlayerInteractions();
+}
+
+function updateRemotePlayers() {
+    Object.values(game.multiplayer.remotePlayers).forEach((player) => {
+        player.renderX += (player.x - player.renderX) * 0.18;
+        player.renderY += (player.y - player.renderY) * 0.18;
+    });
+}
+
+function handlePlayerInteractions() {
+    if (game.multiplayer.interactCooldown > 0) {
+        game.multiplayer.interactCooldown--;
+    }
+    if (!game.keys['e'] || game.multiplayer.interactCooldown > 0) return;
+    const nearest = getNearestRemotePlayer(80);
+    if (!nearest) return;
+    game.multiplayer.interactCooldown = 20;
+    game.multiplayer.selectedPlayerId = nearest.id;
+    togglePanel('multiplayer-panel');
+    refreshMultiplayerUI();
+}
+
+function getNearestRemotePlayer(maxDist) {
+    let closest = null;
+    let closestDist = maxDist;
+    Object.values(game.multiplayer.remotePlayers).forEach((player) => {
+        const dist = Math.abs(game.player.x - player.x);
+        if (dist < closestDist) {
+            closest = player;
+            closestDist = dist;
+        }
+    });
+    return closest;
 }
 
 function syncMultiplayer() {
@@ -1649,6 +1755,11 @@ function getRodVisual(rod) {
         default:
             return { shaft: '#8B5A2B', line: '#cbd6df', reel: '#c2a66b' };
     }
+}
+
+function getRodName(sprite) {
+    const item = SHOP_ITEMS.find(i => i.sprite === sprite);
+    return item ? item.name : 'Rod';
 }
 
 function showToast(message, type = 'info') {
@@ -2278,13 +2389,12 @@ function getAvatarColors(avatarId) {
 
 function drawRemotePlayers(timeSeconds) {
     const ctx = game.ctx;
-    const players = game.multiplayer.players || [];
+    const players = Object.values(game.multiplayer.remotePlayers);
     if (!players.length) return;
     players.forEach((player) => {
-        if (player.id === game.multiplayer.id) return;
         const colors = getAvatarColors(player.avatar);
-        const playerX = player.x - game.camera.x;
-        const playerY = player.y - game.camera.y;
+        const playerX = player.renderX - game.camera.x;
+        const playerY = player.renderY - game.camera.y;
         const bob = Math.max(0, Math.sin(timeSeconds * 5)) * 1.2;
 
         const headSize = 20;
@@ -2335,10 +2445,20 @@ function drawRemotePlayers(timeSeconds) {
 
         if (player.name) {
             ctx.fillStyle = 'rgba(10, 20, 30, 0.7)';
-            ctx.fillRect(playerX - 6, headY - 16, 70, 14);
+            const label = player.name;
+            const width = Math.max(50, label.length * 6 + 12);
+            ctx.fillRect(playerX - 6, headY - 16, width, 14);
             ctx.fillStyle = '#ffffff';
             ctx.font = 'bold 10px Arial';
-            ctx.fillText(player.name, playerX, headY - 5);
+            ctx.fillText(label, playerX, headY - 5);
+            if (player.rodSprite) {
+                const rodName = getRodName(player.rodSprite);
+                ctx.fillStyle = 'rgba(10, 20, 30, 0.7)';
+                ctx.fillRect(playerX - 6, headY - 2, width, 12);
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 9px Arial';
+                ctx.fillText(rodName, playerX, headY + 7);
+            }
         }
     });
 }
