@@ -8,7 +8,7 @@ const clients = new Map();
 
 wss.on('connection', (ws) => {
   const id = Math.random().toString(36).slice(2);
-  clients.set(ws, { id, x: 0, y: 0 });
+  clients.set(ws, { id, x: 0, y: 0, name: 'Guest', avatar: 'reef', facingRight: true, hasRod: false, rodSprite: null });
 
   ws.send(JSON.stringify({ type: 'welcome', id }));
 
@@ -25,6 +25,11 @@ wss.on('connection', (ws) => {
       if (!player) return;
       player.x = msg.x;
       player.y = msg.y;
+      player.name = typeof msg.name === 'string' ? msg.name.slice(0, 16) : player.name;
+      player.avatar = typeof msg.avatar === 'string' ? msg.avatar : player.avatar;
+      player.facingRight = typeof msg.facingRight === 'boolean' ? msg.facingRight : player.facingRight;
+      player.hasRod = Boolean(msg.hasRod);
+      player.rodSprite = msg.rodSprite || null;
 
       const payload = JSON.stringify({
         type: 'players',

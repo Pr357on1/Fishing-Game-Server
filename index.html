@@ -11,6 +11,18 @@
         <canvas id="gameCanvas"></canvas>
         <div id="ui-overlay">
             <div id="toast-container" class="toast-container"></div>
+            <div id="player-setup" class="panel">
+                <h2>Choose Your Angler</h2>
+                <div class="setup-row">
+                    <label for="player-name">Name</label>
+                    <input id="player-name" type="text" maxlength="16" placeholder="Your name">
+                </div>
+                <div class="setup-row">
+                    <span>Avatar</span>
+                    <div id="avatar-options" class="avatar-options"></div>
+                </div>
+                <button id="player-start" class="close-btn">Start</button>
+            </div>
             <div id="teleport-buttons" class="teleport-buttons">
                 <button id="settings-btn" class="teleport-btn">Settings</button>
                 <button id="teleport-shop" class="teleport-btn">Shop</button>

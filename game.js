@@ -12,6 +12,14 @@ const GROUND_SURFACE_OFFSET = -4;
 const FLY_SPEED = 3;
 const GROUND_LEVEL = CANVAS_HEIGHT - 150;
 const FRICTION = 0.85;
+const MULTIPLAYER_URL = 'wss://fishing-game-server.onrender.com';
+const AVATARS = [
+    { id: 'reef', skin: '#58B4A6', shirt: '#3FA08E', pants: '#2C7E71' },
+    { id: 'sunset', skin: '#F2C1A0', shirt: '#E87D72', pants: '#B85C4E' },
+    { id: 'island', skin: '#CFE63A', shirt: '#6AC93F', pants: '#2E6E2B' },
+    { id: 'deep', skin: '#B3D6F5', shirt: '#5C8BD6', pants: '#2F5E9E' },
+    { id: 'ember', skin: '#F1B458', shirt: '#D9742A', pants: '#7A3E1B' }
+];
 
 // Game State
 const game = {
@@ -100,6 +108,16 @@ const game = {
         castY: 0,
         castInWater: false,
         catchDisplay: null
+    },
+    multiplayer: {
+        ws: null,
+        id: null,
+        players: [],
+        lastSent: 0,
+        reconnectTimer: null,
+        name: '',
+        avatar: AVATARS[0].id,
+        ready: false
     }
 };
 
@@ -268,6 +286,12 @@ function init() {
     // Load fish sprites
     loadFishSprites();
 
+    // Multiplayer connect
+    initMultiplayer();
+
+    // Player setup
+    initPlayerSetup();
+
     // Starter gear
     const starterRod = { ...SHOP_ITEMS.find(item => item.type === 'rod' && item.sprite === 'rodBasic'), count: 1 };
     if (starterRod && starterRod.sprite) {
@@ -280,6 +304,92 @@ function init() {
     
     // Start game loop
     gameLoop();
+}
+
+function initPlayerSetup() {
+    const panel = document.getElementById('player-setup');
+    const nameInput = document.getElementById('player-name');
+    const avatarContainer = document.getElementById('avatar-options');
+    const startBtn = document.getElementById('player-start');
+    if (!panel || !nameInput || !avatarContainer || !startBtn) return;
+
+    const storedName = localStorage.getItem('playerName');
+    const storedAvatar = localStorage.getItem('playerAvatar');
+    if (storedName) nameInput.value = storedName;
+    if (storedAvatar) game.multiplayer.avatar = storedAvatar;
+
+    avatarContainer.innerHTML = '';
+    AVATARS.forEach((avatar) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'avatar-option';
+        btn.style.background = avatar.shirt;
+        btn.dataset.avatar = avatar.id;
+        if (avatar.id === game.multiplayer.avatar) {
+            btn.classList.add('selected');
+        }
+        btn.addEventListener('click', () => {
+            game.multiplayer.avatar = avatar.id;
+            avatarContainer.querySelectorAll('.avatar-option').forEach((el) => {
+                el.classList.toggle('selected', el.dataset.avatar === avatar.id);
+            });
+        });
+        avatarContainer.appendChild(btn);
+    });
+
+    startBtn.addEventListener('click', () => {
+        const name = nameInput.value.trim() || 'Guest';
+        game.multiplayer.name = name.slice(0, 16);
+        localStorage.setItem('playerName', game.multiplayer.name);
+        localStorage.setItem('playerAvatar', game.multiplayer.avatar);
+        panel.classList.add('hidden');
+        game.multiplayer.ready = true;
+    });
+}
+
+function initMultiplayer() {
+    if (!MULTIPLAYER_URL) return;
+    connectMultiplayer();
+}
+
+function connectMultiplayer() {
+    if (game.multiplayer.ws) {
+        game.multiplayer.ws.close();
+    }
+    showToast('Connecting to server...', 'info');
+    const ws = new WebSocket(MULTIPLAYER_URL);
+    game.multiplayer.ws = ws;
+
+    ws.onopen = () => {
+        showToast('Connected to server', 'success');
+    };
+
+    ws.onmessage = (event) => {
+        let msg;
+        try {
+            msg = JSON.parse(event.data);
+        } catch {
+            return;
+        }
+        if (msg.type === 'welcome') {
+            game.multiplayer.id = msg.id;
+        } else if (msg.type === 'players') {
+            game.multiplayer.players = msg.players || [];
+        }
+    };
+
+    ws.onclose = () => {
+        showToast('Disconnected. Reconnecting...', 'error');
+        game.multiplayer.players = [];
+        if (game.multiplayer.reconnectTimer) {
+            clearTimeout(game.multiplayer.reconnectTimer);
+        }
+        game.multiplayer.reconnectTimer = setTimeout(connectMultiplayer, 3000);
+    };
+
+    ws.onerror = () => {
+        ws.close();
+    };
 }
 
 function loadFishSprites() {
@@ -721,6 +831,28 @@ function updatePlayer() {
 
     game.player.renderX += (game.player.x - game.player.renderX) * PLAYER_RENDER_SMOOTH;
     game.player.renderY += (game.player.y - game.player.renderY) * PLAYER_RENDER_SMOOTH;
+
+    syncMultiplayer();
+}
+
+function syncMultiplayer() {
+    const ws = game.multiplayer.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!game.multiplayer.ready) return;
+    const now = performance.now();
+    if (now - game.multiplayer.lastSent < 100) return;
+    game.multiplayer.lastSent = now;
+    const rod = getEquippedRod();
+    ws.send(JSON.stringify({
+        type: 'move',
+        x: game.player.x,
+        y: game.player.y,
+        facingRight: game.player.facingRight,
+        name: game.multiplayer.name,
+        avatar: game.multiplayer.avatar,
+        hasRod: Boolean(rod),
+        rodSprite: rod ? rod.sprite : null
+    }));
 }
 
 // Fishing Minigame
@@ -1717,6 +1849,63 @@ function drawPalmTree(x, y, sway, size = 1, palette = 'green') {
     ctx.restore();
 }
 
+function getAvatarColors(avatarId) {
+    const avatar = AVATARS.find(a => a.id === avatarId) || AVATARS[0];
+    return avatar;
+}
+
+function drawRemotePlayers(timeSeconds) {
+    const ctx = game.ctx;
+    const players = game.multiplayer.players || [];
+    if (!players.length) return;
+    players.forEach((player) => {
+        if (player.id === game.multiplayer.id) return;
+        const colors = getAvatarColors(player.avatar);
+        const playerX = player.x - game.camera.x;
+        const playerY = player.y - game.camera.y;
+        const bob = Math.max(0, Math.sin(timeSeconds * 5)) * 1.2;
+
+        const headSize = 20;
+        const bodyWidth = 22;
+        const bodyHeight = 28;
+        const bodyX = playerX + (game.player.width - bodyWidth) / 2;
+        const bodyY = playerY + 16 + bob;
+        const headX = playerX + (game.player.width - headSize) / 2;
+        const headY = playerY + bob;
+
+        ctx.fillStyle = colors.skin;
+        ctx.fillRect(headX, headY, headSize, headSize);
+        ctx.fillStyle = colors.shirt;
+        ctx.fillRect(bodyX, bodyY, bodyWidth, bodyHeight);
+        ctx.fillStyle = colors.pants;
+        ctx.fillRect(bodyX, bodyY + bodyHeight - 6, bodyWidth, 6);
+
+        if (player.hasRod) {
+            const rodVisual = getRodVisual({ sprite: player.rodSprite });
+            const handX = bodyX + bodyWidth + 2;
+            const handY = bodyY + 10;
+            const rodAngle = player.facingRight ? -0.6 : -2.5;
+            const rodLength = 34;
+            const rodEndX = handX + Math.cos(rodAngle) * rodLength;
+            const rodEndY = handY + Math.sin(rodAngle) * rodLength;
+            ctx.strokeStyle = rodVisual.shaft;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(handX, handY);
+            ctx.lineTo(rodEndX, rodEndY);
+            ctx.stroke();
+        }
+
+        if (player.name) {
+            ctx.fillStyle = 'rgba(10, 20, 30, 0.7)';
+            ctx.fillRect(playerX - 6, headY - 16, 70, 14);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 10px Arial';
+            ctx.fillText(player.name, playerX, headY - 5);
+        }
+    });
+}
+
 function drawPlatform(x, y, width) {
     const ctx = game.ctx;
     const platX = x - game.camera.x;
@@ -2217,6 +2406,9 @@ function render() {
     
     // Draw shop keeper as pixel art character (Pixel Gun 3D style)
     drawShopKeeper();
+
+    // Draw other players
+    drawRemotePlayers(timeSeconds);
     
     // Draw player (simple blocky style, centered)
     const playerX = game.player.renderX - game.camera.x;
