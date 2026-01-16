@@ -13,7 +13,13 @@ jobs:
 
       - name: Install butler
         run: |
-          curl -L -o butler.zip https://github.com/itchio/butler/releases/latest/download/butler-linux-amd64.zip
+          python - <<'PY'
+          import json, urllib.request
+          url = "https://api.github.com/repos/itchio/butler/releases/latest"
+          data = json.loads(urllib.request.urlopen(url).read().decode("utf-8"))
+          asset = next(a for a in data["assets"] if a["name"] == "butler-linux-amd64.zip")
+          urllib.request.urlretrieve(asset["browser_download_url"], "butler.zip")
+          PY
           unzip -q butler.zip
           chmod +x butler
 
