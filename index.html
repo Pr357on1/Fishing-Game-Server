@@ -8,26 +8,44 @@
 </head>
 <body>
     <div id="game-container">
+        <div id="loading-screen" class="loading-screen">
+            <div class="loading-card">
+                <div class="loading-title">Island Fishing</div>
+                <div class="loading-subtitle">Cast, catch, and chill.</div>
+                <div class="loading-spinner"></div>
+                <button id="start-game" class="close-btn loading-start">Start Playing</button>
+                <div class="loading-hint">Tip: Use WASD or arrow keys to move.</div>
+            </div>
+        </div>
         <canvas id="gameCanvas"></canvas>
         <div id="ui-overlay">
             <div id="toast-container" class="toast-container"></div>
             <div id="version-badge" class="version-badge">v0.72</div>
             <div id="fps-meter" class="fps-meter">FPS: 0</div>
-            <div id="player-setup" class="panel">
-                <h2>Choose Your Angler</h2>
+            <div id="player-setup" class="panel hidden">
+                <h2>Welcome Angler</h2>
+                <div class="setup-tabs">
+                    <button class="setup-tab selected" data-mode="signup">Sign Up</button>
+                    <button class="setup-tab" data-mode="login">Log In</button>
+                    <button class="setup-tab" data-mode="guest">Guest</button>
+                </div>
+                <p id="setup-mode-copy" class="setup-mode-copy">Create a new account to save your progress.</p>
                 <div class="setup-row">
                     <label for="player-name">Name</label>
                     <input id="player-name" type="text" maxlength="16" placeholder="Your name">
                 </div>
-                <div class="setup-row">
+                <div id="passcode-row" class="setup-row">
                     <label for="player-passcode">Passcode</label>
-                    <input id="player-passcode" type="password" maxlength="24" placeholder="Passcode">
+                    <input id="player-passcode" type="password" maxlength="24" placeholder="Create a passcode">
+                </div>
+                <div id="guest-warning" class="guest-warning hidden">
+                    Play as guest. Be careful: you will not be able to save data.
                 </div>
                 <div class="setup-row">
                     <span>Avatar</span>
                     <div id="avatar-options" class="avatar-options"></div>
                 </div>
-                <button id="player-start" class="close-btn">Start</button>
+                <button id="player-start" class="close-btn">Sign Up</button>
             </div>
             <div id="teleport-buttons" class="teleport-buttons">
                 <button id="settings-btn" class="teleport-btn">Settings</button>

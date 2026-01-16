@@ -1764,3 +1764,105 @@ select {
     clip-path: none;
     border-radius: 999px;
 }
+
+/* Loading screen */
+.loading-screen {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background:
+        linear-gradient(180deg, rgba(92, 45, 213, 0.95) 0%, rgba(77, 110, 242, 0.95) 30%, rgba(87, 216, 231, 0.95) 65%, rgba(61, 140, 245, 0.95) 100%);
+    z-index: 20;
+}
+
+.loading-card {
+    background: rgba(255, 255, 255, 0.96);
+    border-radius: 26px;
+    padding: 28px 32px;
+    width: min(88vw, 420px);
+    text-align: center;
+    box-shadow: 0 18px 40px rgba(20, 34, 86, 0.3);
+}
+
+.loading-title {
+    font-family: 'Fredoka', sans-serif;
+    font-size: 28px;
+    font-weight: 700;
+    color: #2a3e7a;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.loading-subtitle {
+    margin-top: 6px;
+    color: #5260a5;
+    font-weight: 600;
+}
+
+.loading-spinner {
+    width: 56px;
+    height: 56px;
+    margin: 18px auto;
+    border-radius: 50%;
+    border: 6px solid rgba(90, 120, 220, 0.2);
+    border-top-color: #ff9b2f;
+    animation: spin 1s linear infinite;
+}
+
+.loading-start {
+    width: 100%;
+}
+
+.loading-hint {
+    margin-top: 14px;
+    font-size: 12px;
+    color: #5a6aa8;
+    font-weight: 600;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Player setup modes */
+.setup-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.setup-tab {
+    border: none;
+    background: #e9f0ff;
+    color: #2d45a8;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 10px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+}
+
+.setup-tab.selected {
+    background: linear-gradient(135deg, #ff9b2f 0%, #ff6b3a 100%);
+    color: #ffffff;
+    box-shadow: 0 8px 16px rgba(185, 90, 20, 0.35);
+}
+
+.setup-mode-copy {
+    margin-bottom: 12px;
+    color: #5260a5;
+    font-weight: 600;
+}
+
+.guest-warning {
+    background: #fff2db;
+    border: 1px solid rgba(255, 155, 47, 0.35);
+    color: #a25a18;
+    padding: 10px 12px;
+    border-radius: 12px;
+    font-weight: 600;
+    margin-bottom: 12px;
+}

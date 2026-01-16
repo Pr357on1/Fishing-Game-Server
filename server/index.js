@@ -75,17 +75,34 @@ function saveStore(store) {
 }
 
 async function loadPlayerRecord(name) {
+  const trimmed = String(name || '').trim();
+  const needle = trimmed.toLowerCase();
   if (supabase) {
     const { data, error } = await supabase
       .from('players')
       .select('name, passcode, state')
-      .eq('name', name)
+      .eq('name', trimmed)
       .maybeSingle();
     if (error) return null;
-    return data || null;
+    if (data) return data || null;
+    if (!needle) return null;
+    const { data: fallback, error: fallbackError } = await supabase
+      .from('players')
+      .select('name, passcode, state')
+      .ilike('name', trimmed)
+      .limit(1)
+      .maybeSingle();
+    if (fallbackError) return null;
+    return fallback || null;
   }
   const store = loadStore();
-  return store[name] || null;
+  if (store[trimmed]) {
+    return { ...store[trimmed], name: trimmed };
+  }
+  if (!needle) return null;
+  const matchKey = Object.keys(store).find((key) => key.toLowerCase() === needle);
+  if (!matchKey) return null;
+  return { ...store[matchKey], name: matchKey };
 }
 
 async function savePlayerRecord(name, passcode, state) {
@@ -147,16 +164,17 @@ wss.on('connection', (ws) => {
       }
       const record = await loadPlayerRecord(name);
       if (record) {
+        const resolvedName = record.name || name;
         if (record.passcode !== passcode) {
           ws.send(JSON.stringify({ type: 'auth-error', message: 'Passcode incorrect.' }));
           return;
         }
         const player = clients.get(ws);
         if (player) {
-          player.name = name;
+          player.name = resolvedName;
           player.avatar = msg.avatar || player.avatar;
         }
-        ws.send(JSON.stringify({ type: 'auth-ok', state: record.state || null }));
+        ws.send(JSON.stringify({ type: 'auth-ok', state: record.state || null, name: resolvedName }));
       } else {
         await savePlayerRecord(name, passcode, null);
         const player = clients.get(ws);

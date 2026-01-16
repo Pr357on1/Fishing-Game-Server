@@ -145,6 +145,9 @@ const game = {
         avatar: AVATARS[0].id,
         passcode: '',
         ready: false,
+        isGuest: false,
+        authMode: 'signup',
+        pendingAuth: null,
         mode: 'gift',
         selectedPlayerId: null,
         selectedItem: null,
@@ -377,6 +380,25 @@ const SHOP_ITEMS = [
         effects: ['Move speed +25%', 'Duration 45s']
     }
 ];
+
+let gameStarted = false;
+
+function initStartScreen() {
+    const startBtn = document.getElementById('start-game');
+    const loadingScreen = document.getElementById('loading-screen');
+    const playerSetup = document.getElementById('player-setup');
+    if (!startBtn || !loadingScreen) {
+        init();
+        return;
+    }
+    startBtn.addEventListener('click', () => {
+        if (gameStarted) return;
+        gameStarted = true;
+        loadingScreen.classList.add('hidden');
+        if (playerSetup) playerSetup.classList.remove('hidden');
+        init();
+    });
+}
 
 // Initialize Game
 function init() {
@@ -612,9 +634,13 @@ function initPlayerSetup() {
     const panel = document.getElementById('player-setup');
     const nameInput = document.getElementById('player-name');
     const passInput = document.getElementById('player-passcode');
+    const passRow = document.getElementById('passcode-row');
     const avatarContainer = document.getElementById('avatar-options');
     const startBtn = document.getElementById('player-start');
-    if (!panel || !nameInput || !passInput || !avatarContainer || !startBtn) return;
+    const modeCopy = document.getElementById('setup-mode-copy');
+    const guestWarning = document.getElementById('guest-warning');
+    const modeTabs = panel ? panel.querySelectorAll('.setup-tab') : [];
+    if (!panel || !nameInput || !passInput || !avatarContainer || !startBtn || !modeCopy || !guestWarning || !passRow) return;
 
     const storedName = localStorage.getItem('playerName');
     const storedAvatar = localStorage.getItem('playerAvatar');
@@ -642,20 +668,75 @@ function initPlayerSetup() {
         avatarContainer.appendChild(btn);
     });
 
+    let mode = storedPasscode ? 'login' : 'signup';
+
+    const setMode = (nextMode) => {
+        mode = nextMode;
+        modeTabs.forEach((tab) => {
+            tab.classList.toggle('selected', tab.dataset.mode === mode);
+        });
+        const isGuest = mode === 'guest';
+        passRow.classList.toggle('hidden', isGuest);
+        passInput.disabled = isGuest;
+        if (isGuest) {
+            passInput.value = '';
+        }
+        guestWarning.classList.toggle('hidden', !isGuest);
+        if (mode === 'login') {
+            modeCopy.textContent = 'Welcome back! Log in to load your saved player.';
+            passInput.placeholder = 'Enter your passcode';
+            startBtn.textContent = 'Log In';
+        } else if (mode === 'guest') {
+            modeCopy.textContent = 'Jump in without saving progress.';
+            startBtn.textContent = 'Play as Guest';
+        } else {
+            modeCopy.textContent = 'Create a new account to save your progress.';
+            passInput.placeholder = 'Create a passcode';
+            startBtn.textContent = 'Sign Up';
+        }
+    };
+
+    modeTabs.forEach((tab) => {
+        tab.addEventListener('click', () => {
+            if (!tab.dataset.mode) return;
+            setMode(tab.dataset.mode);
+        });
+    });
+
+    setMode(mode);
+
     startBtn.addEventListener('click', () => {
-        const name = nameInput.value.trim() || 'Guest';
+        const rawName = nameInput.value.trim();
+        const name = rawName || (mode === 'guest' ? 'Guest' : '');
         const passcode = passInput.value.trim();
-        if (!passcode) {
+        if (mode !== 'guest' && !name) {
+            showToast('Name required.', 'error');
+            return;
+        }
+        if (mode !== 'guest' && !passcode) {
             showToast('Passcode required.', 'error');
             return;
         }
+
         game.multiplayer.name = name.slice(0, 16);
-        game.multiplayer.passcode = passcode;
-        localStorage.setItem('playerName', game.multiplayer.name);
-        localStorage.setItem('playerAvatar', game.multiplayer.avatar);
-        localStorage.setItem('playerPasscode', game.multiplayer.passcode);
+        game.multiplayer.passcode = mode === 'guest'
+            ? `guest-${Math.random().toString(36).slice(2, 10)}`
+            : passcode;
+        game.multiplayer.isGuest = mode === 'guest';
+
+        game.multiplayer.pendingAuth = {
+            name: game.multiplayer.name,
+            passcode: game.multiplayer.passcode,
+            avatar: game.multiplayer.avatar
+        };
+
+        game.multiplayer.authMode = mode;
         game.multiplayer.ready = true;
         sendAuth();
+
+        if (game.multiplayer.isGuest) {
+            showToast('Playing as guest. Progress will not be saved.', 'info');
+        }
     });
 }
 
@@ -697,21 +778,45 @@ function connectMultiplayer() {
             }
         } else if (msg.type === 'auth-ok') {
             game.multiplayer.authed = true;
+            if (msg.name && typeof msg.name === 'string') {
+                game.multiplayer.name = msg.name.slice(0, 16);
+            }
             applySavedState(msg.state);
             const panel = document.getElementById('player-setup');
             if (panel) panel.classList.add('hidden');
             showToast('Loaded your saved player.', 'success');
+            if (!game.multiplayer.isGuest && game.multiplayer.pendingAuth) {
+                localStorage.setItem('playerName', game.multiplayer.pendingAuth.name);
+                localStorage.setItem('playerAvatar', game.multiplayer.pendingAuth.avatar);
+                localStorage.setItem('playerPasscode', game.multiplayer.pendingAuth.passcode);
+            }
+            game.multiplayer.pendingAuth = null;
             maybeShowTutorialPrompt();
         } else if (msg.type === 'auth-new') {
+            if (game.multiplayer.authMode === 'login') {
+                game.multiplayer.authed = false;
+                showToast('No saved player found for that name + passcode.', 'error');
+                const panel = document.getElementById('player-setup');
+                if (panel) panel.classList.remove('hidden');
+                game.multiplayer.pendingAuth = null;
+                return;
+            }
             game.multiplayer.authed = true;
             applyDefaultState();
             const panel = document.getElementById('player-setup');
             if (panel) panel.classList.add('hidden');
             showToast('New player created.', 'success');
+            if (!game.multiplayer.isGuest && game.multiplayer.pendingAuth) {
+                localStorage.setItem('playerName', game.multiplayer.pendingAuth.name);
+                localStorage.setItem('playerAvatar', game.multiplayer.pendingAuth.avatar);
+                localStorage.setItem('playerPasscode', game.multiplayer.pendingAuth.passcode);
+            }
+            game.multiplayer.pendingAuth = null;
             maybeShowTutorialPrompt();
         } else if (msg.type === 'auth-error') {
             game.multiplayer.authed = false;
             showToast(msg.message || 'Auth failed.', 'error');
+            game.multiplayer.pendingAuth = null;
         } else if (msg.type === 'weather') {
             setWeather(msg.weather, msg.drops || null);
         } else if (msg.type === 'players') {
@@ -1091,6 +1196,7 @@ function applySavedState(state) {
 
 function markSaveDirty(force = false) {
     if (!game.multiplayer.authed) return;
+    if (game.multiplayer.isGuest) return;
     game.multiplayer.saveDirty = true;
     if (force) {
         game.multiplayer.lastSave = 0;
@@ -1101,6 +1207,7 @@ function sendSaveState(force = false) {
     const ws = game.multiplayer.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     if (!game.multiplayer.authed) return;
+    if (game.multiplayer.isGuest) return;
     if (!game.multiplayer.saveDirty && !force) return;
     const now = performance.now();
     if (!force && now - game.multiplayer.lastSave < 3000) return;
@@ -4566,4 +4673,4 @@ function gameLoop() {
 }
 
 // Start game when page loads
-window.addEventListener('load', init);
+window.addEventListener('load', initStartScreen);
