@@ -11,16 +11,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+
       - name: Install butler
         run: |
-          BUTLER_VERSION="v15.24.0"
-          curl -L -o butler.zip "https://github.com/itchio/butler/releases/download/${BUTLER_VERSION}/butler-linux-amd64.zip" || \
-          curl -L -o butler.zip "https://broth.itch.ovh/butler/linux-amd64/${BUTLER_VERSION}/archive/default"
-          unzip -q butler.zip || (tar -xzf butler.zip || true)
-          chmod +x butler
+          go install github.com/itchio/butler@latest
 
       - name: Push to itch.io
         env:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
         run: |
-          ./butler push . pr357on/fishing-game:html
+          ~/go/bin/butler push . pr357on/fishing-game:html
