@@ -1914,6 +1914,15 @@ function updateQuestGivers() {
     });
 }
 
+function getQuestGivers() {
+    const dock = game.island.dock;
+    return [
+        { id: 'dockhand', name: 'Dockhand', x: dock.x + dock.width * 0.3, y: dock.y - 20 },
+        { id: 'shopkeeper', name: 'Shopkeeper', x: game.shopKeeper.x, y: game.shopKeeper.y },
+        { id: 'beachscout', name: 'Beach Scout', x: game.island.x + 160, y: groundSurfaceAt(game.island.x + 160) - 40 }
+    ];
+}
+
 function updateFishIndexDisplay() {
     const container = document.getElementById('fish-index');
     if (!container) return;
@@ -5320,6 +5329,44 @@ function drawShopKeeper() {
     }
 }
 
+function drawQuestGivers(ctx, timeSeconds) {
+    const givers = getQuestGivers();
+    givers.forEach((giver) => {
+        if (giver.id === 'shopkeeper') return;
+        const gx = giver.x - game.camera.x;
+        const gy = giver.y - game.camera.y;
+        const pulse = (Math.sin(timeSeconds * 3 + gx * 0.01) + 1) / 2;
+        const bob = Math.sin(timeSeconds * 2 + gx * 0.02) * 2;
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+        ctx.beginPath();
+        ctx.ellipse(gx + 12, gy + 48, 12, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#ff9b2f';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(gx + 12, gy + 12 + bob, 12 + pulse * 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#1f2d3d';
+        ctx.font = 'bold 12px "Fredoka", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('!', gx + 12, gy + 12 + bob);
+
+        ctx.fillStyle = 'rgba(10, 10, 10, 0.6)';
+        ctx.fillRect(gx - 20, gy + 30 + bob, 64, 18);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 10px "Fredoka", sans-serif';
+        ctx.fillText(giver.name, gx + 12, gy + 39 + bob);
+        ctx.restore();
+    });
+}
+
 function drawRain(ctx, now) {
     if (game.weather.type !== 'rain') return;
     const dt = game.frameDelta || 0.016;
@@ -5586,6 +5633,7 @@ function render() {
     
     // Draw shop keeper as pixel art character (Pixel Gun 3D style)
     drawShopKeeper();
+    drawQuestGivers(game.ctx, timeSeconds);
 
     // Draw other players
     drawRemotePlayers(timeSeconds);
