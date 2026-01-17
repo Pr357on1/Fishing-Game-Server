@@ -605,6 +605,57 @@ body {
     font-size: 11px;
     color: #5060a3;
 }
+
+.quest-sidebar {
+    position: absolute;
+    top: 120px;
+    left: 16px;
+    width: 260px;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 16px;
+    box-shadow: 0 14px 28px rgba(12, 24, 46, 0.25);
+    border: 1px solid rgba(76, 120, 230, 0.15);
+    padding: 10px 12px;
+    pointer-events: all;
+    transition: transform 0.2s ease;
+    z-index: 22;
+}
+
+.quest-sidebar.collapsed {
+    transform: translateX(calc(-100% + 24px));
+}
+
+.quest-sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.quest-sidebar-title {
+    font-weight: 800;
+    color: #2d45a8;
+}
+
+.quest-sidebar-toggle {
+    border: none;
+    background: #e9f0ff;
+    color: #2d45a8;
+    font-weight: 800;
+    border-radius: 999px;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+}
+
+.quest-sidebar-list {
+    display: grid;
+    gap: 8px;
+}
+
+.quest-sidebar .quest-card {
+    padding: 8px 10px;
+}
 #inventory-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);

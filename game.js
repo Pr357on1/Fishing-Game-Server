@@ -75,6 +75,8 @@ const game = {
         completed: []
     },
     unlocks: {},
+    questSidebarOpen: true,
+    questInteractCooldown: 0,
     hotbar: [null, null, null, null, null],
     selectedSlot: 0,
     money: 100,
@@ -669,6 +671,7 @@ function init() {
 
     // Quests
     initQuests();
+    initQuestSidebar();
     
     // Initialize hotbar selection
     selectHotbarSlot(0);
@@ -1611,7 +1614,8 @@ const GUIDED_TUTORIAL_STEPS = [
     { id: 'fish', text: 'Press F to start fishing at the dock.', focus: 'hotbar' },
     { id: 'track', text: 'Keep the fish in the green zone.', focus: 'fishing-bar' },
     { id: 'timing', text: 'Press Space when the marker hits the green zone.', focus: 'timing-bar' },
-    { id: 'shop', text: 'Open the shop and sell a fish.', focus: 'shop-panel' }
+    { id: 'shop', text: 'Walk to the shopkeeper and press E.', focus: 'shopkeeper' },
+    { id: 'sell', text: 'Sell a fish from the shop.', focus: 'shop-panel' }
 ];
 
 function initTutorial() {
@@ -1692,6 +1696,7 @@ function startTutorial() {
     }
     showTutorialOverlay();
     ensureTutorialRod();
+    game.tutorial.flags.rodEquipped = Boolean(game.hotbar[game.selectedSlot]?.type === 'rod');
     setTutorialStep(0);
 }
 
@@ -1870,6 +1875,7 @@ function updateQuestDisplay() {
         card.appendChild(rewards);
         list.appendChild(card);
     });
+    updateQuestSidebar();
 }
 
 function formatQuestRewards(rewards) {
@@ -1886,6 +1892,48 @@ function formatQuestRewards(rewards) {
         rewards.unlocks.forEach((unlock) => parts.push(`Unlock: ${formatUnlockLabel(unlock)}`));
     }
     return `Rewards: ${parts.join(', ') || '-'}`;
+}
+
+function initQuestSidebar() {
+    const sidebar = document.getElementById('quest-sidebar');
+    const toggle = document.getElementById('quest-sidebar-toggle');
+    if (!sidebar || !toggle) return;
+    toggle.addEventListener('click', () => {
+        game.questSidebarOpen = !game.questSidebarOpen;
+        sidebar.classList.toggle('collapsed', !game.questSidebarOpen);
+        toggle.textContent = game.questSidebarOpen ? '‹' : '›';
+    });
+    sidebar.classList.toggle('collapsed', !game.questSidebarOpen);
+    toggle.textContent = game.questSidebarOpen ? '‹' : '›';
+    updateQuestSidebar();
+}
+
+function updateQuestSidebar() {
+    const sidebarList = document.getElementById('quest-sidebar-list');
+    if (!sidebarList) return;
+    sidebarList.innerHTML = '';
+    if (!game.quests.active.length) {
+        const empty = document.createElement('div');
+        empty.className = 'quest-card';
+        empty.textContent = 'No active quests.';
+        sidebarList.appendChild(empty);
+        return;
+    }
+    game.quests.active.forEach((quest) => {
+        const def = getQuestDef(quest.id);
+        if (!def) return;
+        const card = document.createElement('div');
+        card.className = 'quest-card';
+        const title = document.createElement('div');
+        title.className = 'quest-title';
+        title.textContent = def.title;
+        const progress = document.createElement('div');
+        progress.className = 'quest-progress';
+        progress.textContent = `${Math.min(def.target, quest.progress)} / ${def.target}`;
+        card.appendChild(title);
+        card.appendChild(progress);
+        sidebarList.appendChild(card);
+    });
 }
 
 function formatUnlockLabel(unlock) {
@@ -1921,6 +1969,31 @@ function getQuestGivers() {
         { id: 'shopkeeper', name: 'Shopkeeper', x: game.shopKeeper.x, y: game.shopKeeper.y },
         { id: 'beachscout', name: 'Beach Scout', x: game.island.x + 160, y: groundSurfaceAt(game.island.x + 160) - 40 }
     ];
+}
+
+function getNearbyQuestGiver() {
+    const givers = getQuestGivers().filter(g => g.id !== 'shopkeeper');
+    let closest = null;
+    let closestDist = 110;
+    givers.forEach((giver) => {
+        const dx = game.player.x - giver.x;
+        const dy = game.player.y - giver.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < closestDist) {
+            closest = giver;
+            closestDist = dist;
+        }
+    });
+    return closest;
+}
+
+function acceptQuestFromGiver(giverId) {
+    const available = QUEST_DEFS.filter(q => q.giver === giverId && !isQuestActive(q.id) && !isQuestCompleted(q.id));
+    if (!available.length) {
+        showToast('No new quests right now.', 'info');
+        return;
+    }
+    available.forEach((quest) => activateQuest(quest.id));
 }
 
 function updateFishIndexDisplay() {
@@ -2049,6 +2122,20 @@ function getTutorialFocus(target) {
         }
         return getRect(document.getElementById('hotbar'), 10);
     }
+    if (target === 'shopkeeper') {
+        const overlay = document.getElementById('tutorial-overlay');
+        if (!overlay) return null;
+        const overlayRect = overlay.getBoundingClientRect();
+        const sx = game.shopKeeper.x - game.camera.x + (game.shopKeeper.width / 2);
+        const sy = game.shopKeeper.y - game.camera.y + (game.shopKeeper.height / 2);
+        return {
+            x: sx + overlayRect.left - overlayRect.left - 40,
+            y: sy + overlayRect.top - overlayRect.top - 60,
+            width: 80,
+            height: 120,
+            radius: 20
+        };
+    }
     if (target === 'canvas' && canvas) {
         const rect = canvas.getBoundingClientRect();
         return {
@@ -2082,7 +2169,8 @@ function updateTutorialProgress() {
     else if (step.id === 'fish' && flags.fishingStarted) advance();
     else if (step.id === 'track' && flags.stageTrackDone) advance();
     else if (step.id === 'timing' && flags.fishCaught) advance();
-    else if (step.id === 'shop' && flags.fishSold) advance();
+    else if (step.id === 'shop' && flags.shopOpened) advance();
+    else if (step.id === 'sell' && flags.fishSold) advance();
 }
 
 function initKeybinds() {
@@ -2796,6 +2884,9 @@ function selectHotbarSlot(index) {
         slot.classList.toggle('selected', i === index);
     });
     markSaveDirty();
+    if (game.hotbar[index]?.type === 'rod') {
+        game.tutorial.flags.rodEquipped = true;
+    }
 }
 
 // Player Movement
@@ -2939,6 +3030,15 @@ function updatePlayer() {
         
         // Check shop keeper interaction
         const dist = Math.abs(game.player.x - game.shopKeeper.x);
+        if (game.questInteractCooldown > 0) {
+            game.questInteractCooldown -= 1;
+        }
+        const nearbyQuestGiver = getNearbyQuestGiver();
+        if (nearbyQuestGiver && isActionPressed('interact') && game.questInteractCooldown <= 0) {
+            acceptQuestFromGiver(nearbyQuestGiver.id);
+            game.questInteractCooldown = 20;
+            return;
+        }
         if (dist < game.shopKeeper.interactionRange && isActionPressed('interact')) {
             if (!game.dialogue.active) {
                 startDialogue();
@@ -2947,7 +3047,6 @@ function updatePlayer() {
         if (game.dialogue.active && dist > game.shopKeeper.interactionRange + 20) {
             closeDialogue();
         }
-        updateQuestGivers();
     }
     
     // Update camera to follow player
@@ -5338,6 +5437,8 @@ function drawQuestGivers(ctx, timeSeconds) {
         const pulse = (Math.sin(timeSeconds * 3 + gx * 0.01) + 1) / 2;
         const bob = Math.sin(timeSeconds * 2 + gx * 0.02) * 2;
 
+        drawQuestNpcSprite(ctx, giver, gx, gy + bob);
+
         ctx.save();
         ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
         ctx.beginPath();
@@ -5365,6 +5466,40 @@ function drawQuestGivers(ctx, timeSeconds) {
         ctx.fillText(giver.name, gx + 12, gy + 39 + bob);
         ctx.restore();
     });
+}
+
+function drawQuestNpcSprite(ctx, giver, x, y) {
+    const palette = giver.id === 'dockhand'
+        ? { skin: '#F2C1A0', shirt: '#4D6EF2', pants: '#2A3E7A', hat: '#FFD36A' }
+        : { skin: '#F2C1A0', shirt: '#58D8E7', pants: '#2B7A78', hat: '#FF9B2F' };
+    const px = 3;
+    const baseX = x + px * 2;
+    const baseY = y + px * 6;
+
+    ctx.save();
+    // Hat
+    ctx.fillStyle = palette.hat;
+    ctx.fillRect(baseX + px * 1, baseY - px * 5, px * 6, px * 1);
+    ctx.fillRect(baseX + px * 2, baseY - px * 6, px * 4, px * 1);
+
+    // Head
+    ctx.fillStyle = palette.skin;
+    ctx.fillRect(baseX + px * 2, baseY - px * 4, px * 4, px * 3);
+
+    // Body
+    ctx.fillStyle = palette.shirt;
+    ctx.fillRect(baseX + px * 1, baseY - px * 1, px * 6, px * 5);
+
+    // Arms
+    ctx.fillStyle = palette.shirt;
+    ctx.fillRect(baseX, baseY, px * 1, px * 3);
+    ctx.fillRect(baseX + px * 7, baseY, px * 1, px * 3);
+
+    // Legs
+    ctx.fillStyle = palette.pants;
+    ctx.fillRect(baseX + px * 2, baseY + px * 4, px * 2, px * 3);
+    ctx.fillRect(baseX + px * 4, baseY + px * 4, px * 2, px * 3);
+    ctx.restore();
 }
 
 function drawRain(ctx, now) {
