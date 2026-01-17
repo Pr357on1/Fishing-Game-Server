@@ -814,6 +814,11 @@ function sellAllEligible() {
         toRemove.push(item);
     });
 
+    if (!toRemove.length) {
+        showToast('Nothing to sell.', 'info');
+        return;
+    }
+
     toRemove.forEach((item) => {
         const value = (item.price || 0) * (item.count || 1);
         registerSell(item, value);
@@ -830,14 +835,16 @@ function sellAllEligible() {
     if (total > 0) {
         game.money += total;
         showToast(`Sold all eligible fish: +$${total}`, 'success');
-        game.tutorial.flags.fishSold = true;
     } else {
-        showToast('No eligible fish to sell.', 'info');
+        showToast('Nothing to sell.', 'info');
     }
     markSaveDirty();
     updateHotbar();
+    updateInventoryDisplay();
     updateShopDisplay();
-    game.tutorial.flags.fishSold = true;
+    if (total > 0) {
+        game.tutorial.flags.fishSold = true;
+    }
 }
 
 function initPlayerSetup() {
@@ -1416,6 +1423,10 @@ function applySavedState(state) {
     game.multiplayer.hasLoadedState = true;
     updateHotbar();
     updateInventoryDisplay();
+    updateFishIndexDisplay();
+    updateQuestDisplay();
+    updateLevelUI();
+    updateShopDisplay();
 }
 
 function markSaveDirty(force = false) {
@@ -1946,20 +1957,7 @@ function formatUnlockLabel(unlock) {
 }
 
 function updateQuestGivers() {
-    const dock = game.island.dock;
-    const givers = [
-        { id: 'dockhand', name: 'Dockhand', x: dock.x + dock.width * 0.3, y: dock.y - 20, range: 120 },
-        { id: 'shopkeeper', name: 'Shopkeeper', x: game.shopKeeper.x, y: game.shopKeeper.y, range: 120 },
-        { id: 'beachscout', name: 'Beach Scout', x: game.island.x + 160, y: groundSurfaceAt(game.island.x + 160) - 40, range: 120 }
-    ];
-    givers.forEach((giver) => {
-        const dx = game.player.x - giver.x;
-        const dy = game.player.y - giver.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist <= giver.range) {
-            QUEST_DEFS.filter(q => q.giver === giver.id).forEach((quest) => activateQuest(quest.id));
-        }
-    });
+    return;
 }
 
 function getQuestGivers() {
@@ -1988,12 +1986,25 @@ function getNearbyQuestGiver() {
 }
 
 function acceptQuestFromGiver(giverId) {
-    const available = QUEST_DEFS.filter(q => q.giver === giverId && !isQuestActive(q.id) && !isQuestCompleted(q.id));
-    if (!available.length) {
-        showToast('No new quests right now.', 'info');
+    const line = QUEST_DEFS.filter(q => q.giver === giverId);
+    if (!line.length) {
+        showToast('No quests available.', 'info');
         return;
     }
-    available.forEach((quest) => activateQuest(quest.id));
+    const activeFromGiver = game.quests.active.find(q => {
+        const def = getQuestDef(q.id);
+        return def && def.giver === giverId;
+    });
+    if (activeFromGiver) {
+        showToast('Finish the current quest to unlock the next.', 'info');
+        return;
+    }
+    const next = line.find(q => !isQuestCompleted(q.id));
+    if (!next) {
+        showToast('Questline complete!', 'success');
+        return;
+    }
+    activateQuest(next.id);
 }
 
 function updateFishIndexDisplay() {
@@ -2164,7 +2175,10 @@ function updateTutorialProgress() {
     };
     if (step.id === 'move' && flags.moved) advance();
     else if (step.id === 'jump' && flags.jumped) advance();
-    else if (step.id === 'inventory' && flags.inventoryOpened) advance();
+    else if (step.id === 'inventory' && flags.inventoryOpened) {
+        closeAllPanels();
+        advance();
+    }
     else if (step.id === 'equip' && flags.rodEquipped) advance();
     else if (step.id === 'fish' && flags.fishingStarted) advance();
     else if (step.id === 'track' && flags.stageTrackDone) advance();
@@ -3552,10 +3566,16 @@ function updateLevelUI() {
     const label = document.getElementById('level-label');
     const fill = document.getElementById('xp-fill');
     const text = document.getElementById('xp-text');
+    const hudLabel = document.getElementById('xp-hud-label');
+    const hudFill = document.getElementById('xp-hud-fill');
+    const hudText = document.getElementById('xp-hud-text');
     const needed = getXpNeeded(game.progress.level);
     if (label) label.textContent = `Level ${game.progress.level}`;
     if (fill) fill.style.width = `${Math.min(100, (game.progress.xp / needed) * 100)}%`;
     if (text) text.textContent = `${Math.round(game.progress.xp)} / ${needed} XP`;
+    if (hudLabel) hudLabel.textContent = `Level ${game.progress.level}`;
+    if (hudFill) hudFill.style.width = `${Math.min(100, (game.progress.xp / needed) * 100)}%`;
+    if (hudText) hudText.textContent = `${Math.round(game.progress.xp)} / ${needed} XP`;
 }
 
 function registerCatch(item) {
@@ -4452,6 +4472,16 @@ function sellItem(item) {
     updateShopDisplay();
 }
 
+function countSellEligible() {
+    let count = 0;
+    game.inventory.forEach((item) => {
+        if (!item || !item.price || !item.sprite || item.type === 'rod') return;
+        if (isSellProtected(item)) return;
+        count += 1;
+    });
+    return count;
+}
+
 // Teleportation
 function teleportToLocation(locationName) {
     const location = game.locations[locationName];
@@ -4481,6 +4511,7 @@ function teleportToLocation(locationName) {
 function startDialogue() {
     game.dialogue.active = true;
     game.dialogue.fixedPos = null;
+    game.tutorial.flags.shopOpened = true;
     showShopkeeperMenu();
 }
 
