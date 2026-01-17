@@ -2416,6 +2416,9 @@ function updatePlayer() {
                 startDialogue();
             }
         }
+        if (game.dialogue.active && dist > game.shopKeeper.interactionRange + 20) {
+            closeDialogue();
+        }
     }
     
     // Update camera to follow player
@@ -3575,65 +3578,45 @@ function showShopkeeperMenu() {
 
     if (panel) {
         panel.classList.remove('hidden');
-        const offsetX = 60;
-        const offsetY = -20;
-        const screenX = game.shopKeeper.x - game.camera.x + offsetX;
-        const screenY = game.shopKeeper.y - game.camera.y + offsetY;
-        const maxX = game.canvas.width - 320;
-        const maxY = game.canvas.height - 240;
-        panel.style.left = `${Math.max(20, Math.min(maxX, screenX))}px`;
-        panel.style.top = `${Math.max(20, Math.min(maxY, screenY))}px`;
-        panel.style.transform = 'translate(0, 0)';
+        panel.classList.add('dialogue-menu');
     }
     if (nextBtn) {
         nextBtn.classList.add('hidden');
     }
     if (content) {
         content.innerHTML = '';
-        const title = document.createElement('div');
-        title.textContent = 'What would you like to do?';
-        title.style.fontWeight = '700';
-        title.style.marginBottom = '12px';
-        content.appendChild(title);
+        const list = document.createElement('div');
+        list.className = 'dialogue-options';
+        content.appendChild(list);
 
-        const sellAllBtn = document.createElement('button');
-        sellAllBtn.className = 'close-btn';
-        sellAllBtn.textContent = 'Sell All Eligible';
-        sellAllBtn.onclick = () => {
-            sellAllEligible();
-            closeDialogue();
+        const makeOption = (label, action) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'dialogue-option';
+            btn.textContent = label;
+            btn.onclick = action;
+            list.appendChild(btn);
         };
-        content.appendChild(sellAllBtn);
 
-        const sellHeldBtn = document.createElement('button');
-        sellHeldBtn.className = 'close-btn';
-        sellHeldBtn.textContent = 'Sell Held Item';
-        sellHeldBtn.style.marginTop = '8px';
-        sellHeldBtn.onclick = () => {
+        makeOption('1. Sell All', () => {
+            closeDialogue();
+            sellAllEligible();
+        });
+
+        makeOption('2. Sell Held Item', () => {
             sellHeldItem();
             closeDialogue();
-        };
-        content.appendChild(sellHeldBtn);
+        });
 
-        const openShopBtn = document.createElement('button');
-        openShopBtn.className = 'close-btn';
-        openShopBtn.textContent = 'Open Shop';
-        openShopBtn.style.marginTop = '8px';
-        openShopBtn.onclick = () => {
+        makeOption('3. Open Shop', () => {
             closeDialogue();
             openShop();
-        };
-        content.appendChild(openShopBtn);
+        });
 
-        const sellSpecificBtn = document.createElement('button');
-        sellSpecificBtn.className = 'close-btn';
-        sellSpecificBtn.textContent = 'Sell Specific Fish';
-        sellSpecificBtn.style.marginTop = '8px';
-        sellSpecificBtn.onclick = () => {
+        makeOption('4. Sell Specific Fish', () => {
             closeDialogue();
             openInventoryForSell();
-        };
-        content.appendChild(sellSpecificBtn);
+        });
     }
 }
 
@@ -3645,6 +3628,7 @@ function closeDialogue() {
     game.dialogue.active = false;
     const panel = document.getElementById('dialogue-panel');
     if (panel) {
+        panel.classList.remove('dialogue-menu');
         panel.classList.add('hidden');
     }
 }
@@ -3657,6 +3641,7 @@ function sellHeldItem() {
     }
     sellItem(heldItem);
 }
+
 
 // Dev Commands
 function checkDevCode() {

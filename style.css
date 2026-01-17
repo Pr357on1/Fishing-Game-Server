@@ -916,6 +916,52 @@ body {
     box-shadow: 0 22px 60px rgba(9, 33, 45, 0.35);
 }
 
+#dialogue-panel.dialogue-menu {
+    min-width: auto;
+    max-width: 260px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    backdrop-filter: none;
+}
+
+#dialogue-panel.dialogue-menu .dialogue-header,
+#dialogue-panel.dialogue-menu .dialogue-actions {
+    display: none;
+}
+
+#dialogue-panel.dialogue-menu #dialogue-content {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+}
+
+.dialogue-options {
+    display: grid;
+    gap: 6px;
+}
+
+.dialogue-option {
+    display: inline-block;
+    width: auto;
+    text-align: left;
+    border: none;
+    background: rgba(10, 10, 10, 0.55);
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.dialogue-option:hover {
+    background: rgba(10, 10, 10, 0.7);
+}
+
 #catch-popup {
     top: 50%;
     left: 50%;
