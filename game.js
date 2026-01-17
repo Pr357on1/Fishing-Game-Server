@@ -53,6 +53,8 @@ const game = {
         leafFlatness: 1.15
     },
     keys: {},
+    keybinds: {},
+    keybindCapture: null,
     inventory: [],
     hotbar: [null, null, null, null, null],
     selectedSlot: 0,
@@ -191,6 +193,75 @@ const game = {
         popTime: 0
     }
 };
+
+const DEFAULT_KEYBINDS = {
+    move_left: 'KeyA',
+    move_right: 'KeyD',
+    move_up: 'KeyW',
+    move_down: 'KeyS',
+    jump: 'Space',
+    fish: 'KeyF',
+    inventory: 'KeyI',
+    interact: 'KeyE',
+    use_item: 'KeyR',
+    show_players: 'KeyQ',
+    hotbar_1: 'Digit1',
+    hotbar_2: 'Digit2',
+    hotbar_3: 'Digit3',
+    hotbar_4: 'Digit4',
+    hotbar_5: 'Digit5'
+};
+
+const KEYBIND_DEFS = [
+    { id: 'move_left', label: 'Move Left' },
+    { id: 'move_right', label: 'Move Right' },
+    { id: 'move_up', label: 'Swim/Climb Up' },
+    { id: 'move_down', label: 'Swim/Climb Down' },
+    { id: 'jump', label: 'Jump / Timing Hit' },
+    { id: 'fish', label: 'Start Fishing' },
+    { id: 'inventory', label: 'Inventory' },
+    { id: 'interact', label: 'Interact' },
+    { id: 'use_item', label: 'Use Item' },
+    { id: 'show_players', label: 'Show Players' },
+    { id: 'hotbar_1', label: 'Hotbar 1' },
+    { id: 'hotbar_2', label: 'Hotbar 2' },
+    { id: 'hotbar_3', label: 'Hotbar 3' },
+    { id: 'hotbar_4', label: 'Hotbar 4' },
+    { id: 'hotbar_5', label: 'Hotbar 5' }
+];
+
+function loadKeybinds() {
+    try {
+        const raw = localStorage.getItem('keybinds');
+        if (!raw) return { ...DEFAULT_KEYBINDS };
+        const parsed = JSON.parse(raw);
+        return { ...DEFAULT_KEYBINDS, ...parsed };
+    } catch {
+        return { ...DEFAULT_KEYBINDS };
+    }
+}
+
+function saveKeybinds() {
+    localStorage.setItem('keybinds', JSON.stringify(game.keybinds));
+}
+
+function getBoundCode(action) {
+    return game.keybinds[action];
+}
+
+function isActionPressed(action) {
+    const code = getBoundCode(action);
+    if (!code) return false;
+    return Boolean(game.keys[code]);
+}
+
+function formatKeyLabel(code) {
+    if (!code) return 'Unbound';
+    if (code === 'Space') return 'Space';
+    if (code.startsWith('Key')) return code.slice(3);
+    if (code.startsWith('Digit')) return code.slice(5);
+    return code;
+}
 
 // Fish Types with Rarities (using pixel art sprites)
 const FISH_TYPES = {
@@ -407,6 +478,7 @@ function initStartScreen() {
 function init() {
     game.canvas = document.getElementById('gameCanvas');
     game.ctx = game.canvas.getContext('2d');
+    game.keybinds = loadKeybinds();
     
     // Enable smoother rendering for zoomed-in view
     game.canvas.style.imageRendering = 'auto';
@@ -470,6 +542,9 @@ function init() {
 
     // Tutorial setup
     initTutorial();
+
+    // Keybinds setup
+    initKeybinds();
     
     // Initialize hotbar selection
     selectHotbarSlot(0);
@@ -815,7 +890,7 @@ function connectMultiplayer() {
                 localStorage.setItem('playerPasscode', game.multiplayer.pendingAuth.passcode);
             }
             game.multiplayer.pendingAuth = null;
-            maybeShowTutorialPrompt();
+            showTutorialPrompt(true);
         } else if (msg.type === 'auth-error') {
             game.multiplayer.authed = false;
             showToast(msg.message || 'Auth failed.', 'error');
@@ -1371,14 +1446,17 @@ function updatePlayersOverlay() {
 }
 
 const TUTORIAL_STEPS = [
-    'Welcome! Use A/D or Left/Right to move. Space or W jumps.',
-    'Equip a rod from the hotbar (1-5) and press F to fish at the dock.',
-    'During fishing: Stage 1 reel uses A/D to keep the fish in the green zone.',
-    'Stage 2 is aim: click the targets quickly. Stage 3 is timing: press Space on the green zone.',
-    'Open Inventory with I. Click an item to put it in your hotbar.',
-    'Use R on bait or potions in your hotbar to get temporary buffs.',
-    'Talk to the shopkeeper (near the hut) and press E to buy/sell.',
-    'Hold Q to see players online, their ping, and money. Have fun!'
+    'Start screen: click "Start Playing" to begin your session.',
+    'Move with A/D or Left/Right. Jump with Space or W.',
+    'Sign up to save progress, or use Guest (no saving). Log in to load your account.',
+    'Equip a rod from the hotbar (1-5), then press F to fish at the dock.',
+    'Stage 1: track the fish with A/D and keep it in the green zone.',
+    'Stage 2: timing—press Space when the marker hits the green zone.',
+    'Open Inventory with I and click items to assign them to the hotbar.',
+    'Open Settings and use Keybinds to view or change controls.',
+    'Use R on bait or potions in your hotbar to activate buffs.',
+    'Talk to the shopkeeper near the hut and press E to buy or sell.',
+    'Hold Q to view players online, their ping, and money.'
 ];
 
 function initTutorial() {
@@ -1435,6 +1513,7 @@ function showTutorialPrompt(forceOpen) {
             return;
         }
     }
+    closeAllPanels('tutorial-prompt');
     prompt.classList.remove('hidden');
 }
 
@@ -1451,6 +1530,7 @@ function startTutorial() {
     localStorage.setItem('tutorialSeen', 'true');
     const panel = document.getElementById('tutorial-panel');
     if (panel) {
+        closeAllPanels('tutorial-panel');
         panel.classList.remove('hidden');
     }
     setTutorialStep(0);
@@ -1489,6 +1569,81 @@ function closeTutorial() {
         panel.classList.add('hidden');
     }
     game.tutorial.active = false;
+}
+
+function initKeybinds() {
+    const openBtn = document.getElementById('keybinds-open');
+    if (openBtn) {
+        openBtn.addEventListener('click', () => {
+            closeAllPanels('keybinds-panel');
+            const panel = document.getElementById('keybinds-panel');
+            if (panel) panel.classList.remove('hidden');
+            renderKeybinds();
+        });
+    }
+    renderKeybinds();
+}
+
+function renderKeybinds() {
+    const list = document.getElementById('keybinds-list');
+    if (!list) return;
+    list.innerHTML = '';
+    KEYBIND_DEFS.forEach((def) => {
+        const row = document.createElement('div');
+        row.className = 'keybind-row';
+        const label = document.createElement('div');
+        label.className = 'keybind-label';
+        label.textContent = def.label;
+        const key = document.createElement('div');
+        key.className = 'keybind-key';
+        key.dataset.action = def.id;
+        key.textContent = formatKeyLabel(getBoundCode(def.id));
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'close-btn keybind-change';
+        btn.textContent = 'Change';
+        btn.addEventListener('click', () => startKeybindCapture(def.id));
+        row.appendChild(label);
+        row.appendChild(key);
+        row.appendChild(btn);
+        list.appendChild(row);
+    });
+    updateKeybindListeningUI();
+}
+
+function updateKeybindListeningUI() {
+    if (!game.keybindCapture) return;
+    const keyEl = document.querySelector(`.keybind-key[data-action="${game.keybindCapture}"]`);
+    if (keyEl) {
+        keyEl.classList.add('listening');
+        keyEl.textContent = 'Press a key';
+    }
+}
+
+function startKeybindCapture(action) {
+    game.keybindCapture = action;
+    renderKeybinds();
+    showToast('Press a key (Esc to cancel).', 'info');
+}
+
+function handleKeybindCapture(e) {
+    e.preventDefault();
+    if (e.code === 'Escape') {
+        game.keybindCapture = null;
+        renderKeybinds();
+        return;
+    }
+    const action = game.keybindCapture;
+    const existing = Object.keys(game.keybinds).find((key) => key !== action && game.keybinds[key] === e.code);
+    if (existing) {
+        showToast('That key is already bound.', 'error');
+        return;
+    }
+    game.keybinds[action] = e.code;
+    saveKeybinds();
+    game.keybindCapture = null;
+    renderKeybinds();
+    showToast('Keybind updated.', 'success');
 }
 
 function canSendItem(item) {
@@ -1759,14 +1914,16 @@ function getObstacleTopAt(x) {
 function setupEventListeners() {
     // Keyboard
     document.addEventListener('keydown', (e) => {
-        if (isTypingInInput()) return;
-        if (e.code === 'Space') {
-            game.keys.space = true;
+        if (game.keybindCapture) {
+            handleKeybindCapture(e);
+            return;
         }
-        game.keys[e.key.toLowerCase()] = true;
-        if (e.key.toLowerCase() === 'q') {
+        if (isTypingInInput()) return;
+        game.keys[e.code] = true;
+        if (e.code === getBoundCode('show_players')) {
             const overlay = document.getElementById('players-overlay');
             if (overlay) {
+                closeAllPanels('players-overlay');
                 overlay.classList.remove('hidden');
                 updatePlayersOverlay();
             }
@@ -1776,11 +1933,8 @@ function setupEventListeners() {
     
     document.addEventListener('keyup', (e) => {
         if (isTypingInInput()) return;
-        if (e.code === 'Space') {
-            game.keys.space = false;
-        }
-        game.keys[e.key.toLowerCase()] = false;
-        if (e.key.toLowerCase() === 'q') {
+        game.keys[e.code] = false;
+        if (e.code === getBoundCode('show_players')) {
             const overlay = document.getElementById('players-overlay');
             if (overlay) {
                 overlay.classList.add('hidden');
@@ -1806,14 +1960,17 @@ function setupEventListeners() {
         slot.addEventListener('click', () => selectHotbarSlot(index));
     });
     
-    // Number keys for hotbar
-    for (let i = 1; i <= 5; i++) {
-        document.addEventListener('keydown', (e) => {
-            if (e.key === i.toString()) {
-                selectHotbarSlot(i - 1);
+    // Hotbar keybinds
+    document.addEventListener('keydown', (e) => {
+        if (game.keybindCapture || isTypingInInput()) return;
+        const match = KEYBIND_DEFS.find(def => def.id.startsWith('hotbar_') && getBoundCode(def.id) === e.code);
+        if (match) {
+            const index = parseInt(match.id.split('_')[1], 10) - 1;
+            if (!Number.isNaN(index)) {
+                selectHotbarSlot(index);
             }
-        });
-    }
+        }
+    });
     
     // Panel close buttons
     document.querySelectorAll('.panel-close').forEach((button) => {
@@ -1860,6 +2017,7 @@ function setupEventListeners() {
     }
     
     document.getElementById('dev-open').addEventListener('click', () => {
+        closeAllPanels('dev-code-input');
         document.getElementById('dev-code-input').classList.remove('hidden');
     });
     document.getElementById('dev-panel-open').addEventListener('click', () => {
@@ -2007,18 +2165,18 @@ function isTypingInInput() {
 
 function handleKeyPress(e) {
     if (isTypingInInput()) return;
-    if (game.fishing.active && e.code === 'Space' && game.fishing.stageType === 'timing') {
+    if (game.fishing.active && e.code === getBoundCode('jump') && game.fishing.stageType === 'timing') {
         attemptTimingHit();
         return;
     }
     // Inventory (I key)
-    if (e.key.toLowerCase() === 'i') {
+    if (e.code === getBoundCode('inventory')) {
         togglePanel('inventory-panel');
         updateInventoryDisplay();
     }
     
     // Fishing (F key) - works anywhere
-    if (e.key.toLowerCase() === 'f') {
+    if (e.code === getBoundCode('fish')) {
         if (!game.fishing.active) {
             const heldItem = game.hotbar[game.selectedSlot];
             if (!heldItem || heldItem.type !== 'rod') {
@@ -2029,7 +2187,7 @@ function handleKeyPress(e) {
         }
     }
 
-    if (e.key.toLowerCase() === 'r') {
+    if (e.code === getBoundCode('use_item')) {
         const heldItem = game.hotbar[game.selectedSlot];
         if (heldItem && heldItem.type === 'consumable') {
             useConsumable(heldItem);
@@ -2037,7 +2195,7 @@ function handleKeyPress(e) {
     }
     
     // Space to jump (disabled while fishing)
-    if (e.key === ' ' && !game.fishing.active) {
+    if (e.code === getBoundCode('jump') && !game.fishing.active) {
         if (game.player.onGround && game.player.jumpCooldown <= 0) {
             game.player.vy = JUMP_POWER;
             game.player.onGround = false;
@@ -2046,7 +2204,7 @@ function handleKeyPress(e) {
     }
     
     // Jump with W key
-    if ((e.key.toLowerCase() === 'w' || e.key.toLowerCase() === 'arrowup') && game.player.onGround && game.player.jumpCooldown <= 0) {
+    if (e.code === getBoundCode('move_up') && game.player.onGround && game.player.jumpCooldown <= 0) {
         game.player.vy = JUMP_POWER;
         game.player.onGround = false;
         game.player.jumpCooldown = 10;
@@ -2055,7 +2213,34 @@ function handleKeyPress(e) {
 
 function togglePanel(panelId) {
     const panel = document.getElementById(panelId);
-    panel.classList.toggle('hidden');
+    if (!panel) return;
+    const willOpen = panel.classList.contains('hidden');
+    if (willOpen) {
+        closeAllPanels(panelId);
+        panel.classList.remove('hidden');
+    } else {
+        panel.classList.add('hidden');
+    }
+}
+
+function closeAllPanels(exceptId) {
+    document.querySelectorAll('.panel').forEach((panel) => {
+        if (panel.id !== exceptId) {
+            panel.classList.add('hidden');
+        }
+    });
+    const overlays = ['players-overlay', 'dev-code-input', 'tutorial-prompt'];
+    overlays.forEach((id) => {
+        if (id === exceptId) return;
+        const el = document.getElementById(id);
+        if (el) {
+            el.classList.add('hidden');
+        }
+    });
+    if (exceptId !== 'keybinds-panel' && game.keybindCapture) {
+        game.keybindCapture = null;
+        renderKeybinds();
+    }
 }
 
 function selectHotbarSlot(index) {
@@ -2073,10 +2258,10 @@ function updatePlayer() {
     if (!game.fishing.active) {
         // Horizontal movement (1D - only left/right)
         const moveSpeed = PLAYER_SPEED * (game.buffs.speedMultiplier || 1);
-        if (!game.fishing.active && (game.keys['a'] || game.keys['arrowleft'])) {
+        if (!game.fishing.active && isActionPressed('move_left')) {
             game.player.vx = -moveSpeed;
             game.player.facingRight = false;
-        } else if (!game.fishing.active && (game.keys['d'] || game.keys['arrowright'])) {
+        } else if (!game.fishing.active && isActionPressed('move_right')) {
             game.player.vx = moveSpeed;
             game.player.facingRight = true;
         } else {
@@ -2087,9 +2272,9 @@ function updatePlayer() {
         
         // Apply gravity or flying/swimming control
         if (game.player.flying) {
-            if (game.keys['w'] || game.keys['arrowup']) {
+            if (isActionPressed('move_up')) {
                 game.player.vy = -FLY_SPEED;
-            } else if (game.keys['s'] || game.keys['arrowdown']) {
+            } else if (isActionPressed('move_down')) {
                 game.player.vy = FLY_SPEED;
             } else {
                 game.player.vy = 0;
@@ -2125,9 +2310,9 @@ function updatePlayer() {
         // Swimming movement
         if (game.player.swimming) {
             const swimSpeed = 1.8;
-            if (game.keys['w'] || game.keys['arrowup']) {
+            if (isActionPressed('move_up')) {
                 game.player.vy = -swimSpeed;
-            } else if (game.keys['s'] || game.keys['arrowdown']) {
+            } else if (isActionPressed('move_down')) {
                 game.player.vy = swimSpeed;
             } else {
                 game.player.vy *= 0.85;
@@ -2205,7 +2390,7 @@ function updatePlayer() {
         
         // Check shop keeper interaction
         const dist = Math.abs(game.player.x - game.shopKeeper.x);
-        if (dist < game.shopKeeper.interactionRange && game.keys['e']) {
+        if (dist < game.shopKeeper.interactionRange && isActionPressed('interact')) {
             if (!game.dialogue.active) {
                 startDialogue();
             }
@@ -2248,7 +2433,7 @@ function handlePlayerInteractions() {
     if (game.multiplayer.interactCooldown > 0) {
         game.multiplayer.interactCooldown--;
     }
-    if (!game.keys['e'] || game.multiplayer.interactCooldown > 0) return;
+    if (!isActionPressed('interact') || game.multiplayer.interactCooldown > 0) return;
     const nearest = getNearestRemotePlayer(80);
     if (!nearest) return;
     game.multiplayer.interactCooldown = 20;
@@ -2447,10 +2632,10 @@ function updateFishing(dt = 0.016) {
     if (game.fishing.stageType === 'track') {
         // Control green zone
         const zoneSpeed = 1.6;
-        if (game.keys['arrowleft'] || game.keys['a']) {
+        if (isActionPressed('move_left')) {
             game.fishing.targetPos -= zoneSpeed;
         }
-        if (game.keys['arrowright'] || game.keys['d']) {
+        if (isActionPressed('move_right')) {
             game.fishing.targetPos += zoneSpeed;
         }
         game.fishing.targetPos = Math.max(10, Math.min(90, game.fishing.targetPos));

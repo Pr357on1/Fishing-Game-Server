@@ -1787,6 +1787,56 @@ select {
     transform: translate(-50%, -50%);
 }
 
+#tutorial-panel,
+#tutorial-prompt {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.keybinds-list {
+    display: grid;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.keybind-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: #ffffff;
+    border-radius: 14px;
+    border: 1px solid rgba(76, 120, 230, 0.12);
+    box-shadow: 0 10px 18px rgba(18, 36, 88, 0.12);
+}
+
+.keybind-label {
+    font-weight: 700;
+    color: #2d45a8;
+}
+
+.keybind-key {
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: #e9f0ff;
+    color: #2d45a8;
+    font-weight: 700;
+    font-size: 12px;
+    min-width: 80px;
+    text-align: center;
+}
+
+.keybind-key.listening {
+    background: #fff2db;
+    color: #a25a18;
+}
+
+.keybind-change {
+    min-width: 110px;
+}
+
 /* Loading screen */
 .loading-screen {
     position: absolute;
