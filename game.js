@@ -58,6 +58,12 @@ const game = {
     inventory: [],
     inventoryMode: 'normal',
     inventorySelected: null,
+    shopTab: 'buy',
+    shopSort: 'price-asc',
+    shopExpanded: {
+        buy: new Set(),
+        sell: new Set()
+    },
     hotbar: [null, null, null, null, null],
     selectedSlot: 0,
     money: 100,
@@ -176,7 +182,10 @@ const game = {
     renderQuality: 'low',
     tutorial: {
         active: false,
-        stepIndex: 0
+        stepIndex: 0,
+        mode: 'guided',
+        flags: {},
+        currentStepId: null
     },
     buffs: {
         luckBonus: 0,
@@ -540,6 +549,9 @@ function init() {
     // Multiplayer UI
     initMultiplayerUI();
 
+    // Shop UI
+    initShopUI();
+
     // Weather setup
     initWeather();
 
@@ -707,12 +719,14 @@ function sellAllEligible() {
     if (total > 0) {
         game.money += total;
         showToast(`Sold all eligible fish: +$${total}`, 'success');
+        game.tutorial.flags.fishSold = true;
     } else {
         showToast('No eligible fish to sell.', 'info');
     }
     markSaveDirty();
     updateHotbar();
     updateShopDisplay();
+    game.tutorial.flags.fishSold = true;
 }
 
 function initPlayerSetup() {
@@ -1453,17 +1467,25 @@ function updatePlayersOverlay() {
 }
 
 const TUTORIAL_STEPS = [
-    'Start screen: click "Start Playing" to begin your session.',
-    'Move with A/D or Left/Right. Jump with Space or W.',
-    'Sign up to save progress, or use Guest (no saving). Log in to load your account.',
-    'Equip a rod from the hotbar (1-5), then press F to fish at the dock.',
-    'Stage 1: track the fish with A/D and keep it in the green zone.',
-    'Stage 2: timing—press Space when the marker hits the green zone.',
-    'Open Inventory with I and click items to assign them to the hotbar.',
-    'Open Settings and use Keybinds to view or change controls.',
-    'Use R on bait or potions in your hotbar to activate buffs.',
-    'Talk to the shopkeeper near the hut and press E to buy or sell.',
-    'Hold Q to view players online, their ping, and money.'
+    'Move with A/D or Left/Right.',
+    'Jump with Space or W.',
+    'Press I to open your inventory.',
+    'Select a fishing rod in your hotbar.',
+    'Press F to start fishing at the dock.',
+    'Keep the fish in the green zone.',
+    'Press Space when the marker hits the green zone.',
+    'Open the shop and sell a fish.'
+];
+
+const GUIDED_TUTORIAL_STEPS = [
+    { id: 'move', text: 'Move with A/D or Left/Right.', focus: 'canvas' },
+    { id: 'jump', text: 'Jump with Space or W.', focus: 'canvas' },
+    { id: 'inventory', text: 'Press I to open your inventory.', focus: 'hotbar' },
+    { id: 'equip', text: 'Select a fishing rod in your hotbar.', focus: 'hotbar' },
+    { id: 'fish', text: 'Press F to start fishing at the dock.', focus: 'hotbar' },
+    { id: 'track', text: 'Keep the fish in the green zone.', focus: 'fishing-bar' },
+    { id: 'timing', text: 'Press Space when the marker hits the green zone.', focus: 'timing-bar' },
+    { id: 'shop', text: 'Open the shop and sell a fish.', focus: 'shop-panel' }
 ];
 
 function initTutorial() {
@@ -1534,35 +1556,41 @@ function hideTutorialPrompt() {
 function startTutorial() {
     game.tutorial.active = true;
     game.tutorial.stepIndex = 0;
+    game.tutorial.mode = 'guided';
+    game.tutorial.flags = {};
+    game.tutorial.currentStepId = GUIDED_TUTORIAL_STEPS[0]?.id || null;
     localStorage.setItem('tutorialSeen', 'true');
     const panel = document.getElementById('tutorial-panel');
     if (panel) {
-        closeAllPanels('tutorial-panel');
-        panel.classList.remove('hidden');
+        panel.classList.add('hidden');
     }
+    showTutorialOverlay();
+    ensureTutorialRod();
     setTutorialStep(0);
 }
 
 function setTutorialStep(index) {
     const panel = document.getElementById('tutorial-panel');
-    if (!panel) return;
     const step = document.getElementById('tutorial-step');
     const prevBtn = document.getElementById('tutorial-prev');
     const nextBtn = document.getElementById('tutorial-next');
-    const clamped = Math.max(0, Math.min(TUTORIAL_STEPS.length - 1, index));
+    const steps = game.tutorial.mode === 'guided' ? GUIDED_TUTORIAL_STEPS : TUTORIAL_STEPS;
+    const clamped = Math.max(0, Math.min(steps.length - 1, index));
     game.tutorial.stepIndex = clamped;
-    if (step) {
-        step.textContent = TUTORIAL_STEPS[clamped];
-    }
+    const current = steps[clamped];
+    game.tutorial.currentStepId = typeof current === 'string' ? null : current.id;
+    if (step && typeof current === 'string') step.textContent = current;
     if (prevBtn) {
         prevBtn.disabled = clamped === 0;
     }
     if (nextBtn) {
-        nextBtn.textContent = clamped === TUTORIAL_STEPS.length - 1 ? 'Finish' : 'Next';
+        nextBtn.textContent = clamped === steps.length - 1 ? 'Finish' : 'Next';
     }
+    updateTutorialOverlay();
 }
 
 function handleTutorialNext() {
+    if (game.tutorial.mode === 'guided') return;
     if (game.tutorial.stepIndex >= TUTORIAL_STEPS.length - 1) {
         closeTutorial();
     } else {
@@ -1575,7 +1603,133 @@ function closeTutorial() {
     if (panel) {
         panel.classList.add('hidden');
     }
+    hideTutorialOverlay();
     game.tutorial.active = false;
+    game.tutorial.mode = 'guided';
+    game.tutorial.currentStepId = null;
+}
+
+function showTutorialOverlay() {
+    const overlay = document.getElementById('tutorial-overlay');
+    if (overlay) overlay.classList.remove('hidden');
+}
+
+function hideTutorialOverlay() {
+    const overlay = document.getElementById('tutorial-overlay');
+    if (overlay) overlay.classList.add('hidden');
+}
+
+function ensureTutorialRod() {
+    const hasRod = game.inventory.some(item => item.type === 'rod');
+    if (hasRod) return;
+    const rodItem = SHOP_ITEMS.find(item => item.type === 'rod');
+    if (!rodItem) return;
+    const newRod = ensureItemId({ ...rodItem, count: 1 });
+    game.inventory.push(newRod);
+    game.hotbar[0] = newRod;
+    game.selectedSlot = 0;
+    updateHotbar();
+    updateInventoryDisplay();
+}
+
+function updateTutorialOverlay() {
+    if (!game.tutorial.active || game.tutorial.mode !== 'guided') return;
+    const overlay = document.getElementById('tutorial-overlay');
+    const spotlight = document.getElementById('tutorial-spotlight');
+    const tooltip = document.getElementById('tutorial-tooltip');
+    const text = document.getElementById('tutorial-text');
+    const arrow = document.getElementById('tutorial-arrow');
+    if (!overlay || !spotlight || !tooltip || !text || !arrow) return;
+
+    const step = GUIDED_TUTORIAL_STEPS[game.tutorial.stepIndex];
+    if (!step) return;
+    text.textContent = step.text;
+
+    const focus = getTutorialFocus(step.focus);
+    if (!focus) return;
+    spotlight.style.left = `${focus.x}px`;
+    spotlight.style.top = `${focus.y}px`;
+    spotlight.style.width = `${focus.width}px`;
+    spotlight.style.height = `${focus.height}px`;
+    spotlight.style.borderRadius = `${focus.radius || 16}px`;
+
+    const overlayRect = overlay.getBoundingClientRect();
+    const spaceRight = overlayRect.width - (focus.x + focus.width);
+    const placeRight = spaceRight > 220;
+    const tooltipX = placeRight ? focus.x + focus.width + 16 : focus.x - 280;
+    const tooltipY = Math.max(16, focus.y + focus.height / 2 - 30);
+    tooltip.style.left = `${Math.max(16, Math.min(overlayRect.width - 280, tooltipX))}px`;
+    tooltip.style.top = `${tooltipY}px`;
+    arrow.className = 'tutorial-arrow ' + (placeRight ? 'right' : 'left');
+}
+
+function getTutorialFocus(target) {
+    const overlay = document.getElementById('tutorial-overlay');
+    if (!overlay) return null;
+    const overlayRect = overlay.getBoundingClientRect();
+    const canvas = game.canvas;
+    const getRect = (el, pad = 8) => {
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        return {
+            x: rect.left - overlayRect.left - pad,
+            y: rect.top - overlayRect.top - pad,
+            width: rect.width + pad * 2,
+            height: rect.height + pad * 2,
+            radius: 16
+        };
+    };
+
+    if (target === 'hotbar') {
+        return getRect(document.getElementById('hotbar'), 10);
+    }
+    if (target === 'fishing-bar') {
+        return getRect(document.getElementById('fishing-bar-container'), 10);
+    }
+    if (target === 'timing-bar') {
+        return getRect(document.getElementById('timing-bar'), 10);
+    }
+    if (target === 'shop-panel') {
+        const panel = document.getElementById('shop-panel');
+        if (panel && !panel.classList.contains('hidden')) {
+            return getRect(panel, 10);
+        }
+        return getRect(document.getElementById('hotbar'), 10);
+    }
+    if (target === 'canvas' && canvas) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+            x: rect.left - overlayRect.left + rect.width * 0.5 - 120,
+            y: rect.top - overlayRect.top + rect.height * 0.45 - 80,
+            width: 240,
+            height: 160,
+            radius: 24
+        };
+    }
+    return null;
+}
+
+function updateTutorialProgress() {
+    if (!game.tutorial.active || game.tutorial.mode !== 'guided') return;
+    const step = GUIDED_TUTORIAL_STEPS[game.tutorial.stepIndex];
+    if (!step) return;
+    const flags = game.tutorial.flags;
+    const advance = () => {
+        const next = game.tutorial.stepIndex + 1;
+        if (next >= GUIDED_TUTORIAL_STEPS.length) {
+            closeTutorial();
+        } else {
+            setTutorialStep(next);
+        }
+    };
+    if (step.id === 'move' && flags.moved) advance();
+    else if (step.id === 'jump' && flags.jumped) advance();
+    else if (step.id === 'inventory' && flags.inventoryOpened) advance();
+    else if (step.id === 'equip' && flags.rodEquipped) advance();
+    else if (step.id === 'fish' && flags.fishingStarted) advance();
+    else if (step.id === 'track' && flags.stageTrackDone) advance();
+    else if (step.id === 'timing' && flags.fishCaught) advance();
+    else if (step.id === 'shop' && flags.fishSold) advance();
 }
 
 function initKeybinds() {
@@ -2192,6 +2346,10 @@ function handleKeyPress(e) {
     if (e.code === getBoundCode('inventory')) {
         togglePanel('inventory-panel');
         updateInventoryDisplay();
+        const panel = document.getElementById('inventory-panel');
+        if (panel && !panel.classList.contains('hidden')) {
+            game.tutorial.flags.inventoryOpened = true;
+        }
     }
     
     // Fishing (F key) - works anywhere
@@ -2219,6 +2377,7 @@ function handleKeyPress(e) {
             game.player.vy = JUMP_POWER;
             game.player.onGround = false;
             game.player.jumpCooldown = 10;
+            game.tutorial.flags.jumped = true;
         }
     }
     
@@ -2227,6 +2386,7 @@ function handleKeyPress(e) {
         game.player.vy = JUMP_POWER;
         game.player.onGround = false;
         game.player.jumpCooldown = 10;
+        game.tutorial.flags.jumped = true;
     }
 }
 
@@ -2283,9 +2443,11 @@ function updatePlayer() {
         if (!game.fishing.active && isActionPressed('move_left')) {
             game.player.vx = -moveSpeed;
             game.player.facingRight = false;
+            game.tutorial.flags.moved = true;
         } else if (!game.fishing.active && isActionPressed('move_right')) {
             game.player.vx = moveSpeed;
             game.player.facingRight = true;
+            game.tutorial.flags.moved = true;
         } else {
             // Apply friction
             game.player.vx *= FRICTION;
@@ -2537,6 +2699,7 @@ function startFishing() {
     
     document.getElementById('fishing-minigame').classList.remove('hidden');
     updateFishingDisplay();
+    game.tutorial.flags.fishingStarted = true;
 }
 
 function getRarityDifficulty(rarity) {
@@ -2591,6 +2754,14 @@ function setupFishingStage() {
         game.fishing.timingTargetCenter = 20 + Math.random() * 60;
         game.fishing.timingSpeed = 1.2 * game.fishing.difficultyScale;
     }
+    if (game.tutorial.active && game.tutorial.mode === 'guided' &&
+        (game.tutorial.currentStepId === 'track' || game.tutorial.currentStepId === 'timing')) {
+        game.fishing.stageTimeRemaining = 999;
+        game.fishing.targetWidth = Math.max(game.fishing.targetWidth, 46);
+        game.fishing.progressGain = Math.max(game.fishing.progressGain || 0, 0.02);
+        game.fishing.progressLoss = Math.min(game.fishing.progressLoss || 0.003, 0.001);
+        game.fishing.fishSpeedMultiplier = Math.min(game.fishing.fishSpeedMultiplier || 1, 0.6);
+    }
     updateFishingDisplay();
     if (game.fishing.stageType === 'targets') {
         spawnAccuracyTarget();
@@ -2601,6 +2772,9 @@ function advanceFishingStage() {
     if (game.fishing.stage < game.fishing.stagesTotal) {
         game.fishing.stage += 1;
         game.fishing.stageType = FISHING_STAGE_ORDER[game.fishing.stage - 1];
+        if (game.tutorial.active && game.tutorial.currentStepId === 'track') {
+            game.tutorial.flags.stageTrackDone = true;
+        }
         setupFishingStage();
     } else {
         endFishing(true);
@@ -2717,10 +2891,13 @@ function updateFishing(dt = 0.016) {
     }
 
     // Update stage timer
-    game.fishing.stageTimeRemaining -= dt;
-    if (game.fishing.stageTimeRemaining <= 0) {
-        endFishing(false);
-        return;
+    if (!(game.tutorial.active && game.tutorial.mode === 'guided' &&
+        (game.tutorial.currentStepId === 'track' || game.tutorial.currentStepId === 'timing'))) {
+        game.fishing.stageTimeRemaining -= dt;
+        if (game.fishing.stageTimeRemaining <= 0) {
+            endFishing(false);
+            return;
+        }
     }
 
     updateFishingDisplay();
@@ -2778,11 +2955,14 @@ function updateFishingDisplay() {
         timingHits.textContent = `Hits: ${game.fishing.timingHits}/${game.fishing.timingHitsNeeded}`;
     }
     if (timer) {
-        const timeLeft = Math.max(0, Math.ceil(game.fishing.stageTimeRemaining));
+        const isTutorialStage = game.tutorial.active && game.tutorial.mode === 'guided' &&
+            (game.tutorial.currentStepId === 'track' || game.tutorial.currentStepId === 'timing');
+        const timeLeft = isTutorialStage ? 'Tutorial' : Math.max(0, Math.ceil(game.fishing.stageTimeRemaining));
         const progress = Math.round(game.fishing.progress * 100);
         const waterText = game.fishing.castInWater ? 'In Water' : 'No Water';
         const progressText = game.fishing.stageType === 'track' ? `Reel ${progress}%` : 'Complete the stage';
-        timer.textContent = `${timeLeft}s | ${progressText} | ${waterText}`;
+        const timeLabel = isTutorialStage ? timeLeft : `${timeLeft}s`;
+        timer.textContent = `${timeLabel} | ${progressText} | ${waterText}`;
     }
 }
 
@@ -2826,6 +3006,7 @@ function endFishing(success) {
         const item = createWeightedFish(fish, rarity, weight);
         addToInventory(item);
         game.fishing.catchDisplay = { item, timer: 1.2 };
+        game.tutorial.flags.fishCaught = true;
         showCatchPopup(item, rarityChance);
     } else {
         showToast('Missed! Try again.', 'error');
@@ -3183,6 +3364,9 @@ function updateHotbar() {
             }
         }
     });
+    if (game.hotbar[game.selectedSlot]?.type === 'rod') {
+        game.tutorial.flags.rodEquipped = true;
+    }
 }
 
 function getRarityColor(rarity) {
@@ -3373,119 +3557,236 @@ function openShop() {
         panel.classList.remove('hidden');
     }
     updateShopDisplay();
+    game.tutorial.flags.shopOpened = true;
+}
+
+function initShopUI() {
+    const tabBuy = document.getElementById('shop-tab-buy');
+    const tabSell = document.getElementById('shop-tab-sell');
+    if (tabBuy && tabSell) {
+        tabBuy.addEventListener('click', () => setShopTab('buy'));
+        tabSell.addEventListener('click', () => setShopTab('sell'));
+        setShopTab(game.shopTab || 'buy');
+    }
+
+    const sortSelect = document.getElementById('shop-sort');
+    if (sortSelect) {
+        sortSelect.value = game.shopSort || 'price-asc';
+        sortSelect.addEventListener('change', () => {
+            game.shopSort = sortSelect.value;
+            updateShopDisplay();
+        });
+    }
+}
+
+function setShopTab(tab) {
+    game.shopTab = tab;
+    const buySection = document.getElementById('shop-buy');
+    const sellSection = document.getElementById('shop-sell');
+    const sellControls = document.getElementById('sell-controls');
+    if (buySection) buySection.classList.toggle('hidden', tab !== 'buy');
+    if (sellSection) sellSection.classList.toggle('hidden', tab !== 'sell');
+    if (sellControls) sellControls.classList.toggle('hidden', tab !== 'sell');
+    const tabBuy = document.getElementById('shop-tab-buy');
+    const tabSell = document.getElementById('shop-tab-sell');
+    if (tabBuy) tabBuy.classList.toggle('active-tab', tab === 'buy');
+    if (tabSell) tabSell.classList.toggle('active-tab', tab === 'sell');
+    updateShopDisplay();
+}
+
+function getShopItemKey(item, isSell) {
+    if (isSell) {
+        return item.uid || `${item.name}-${item.weight || 0}`;
+    }
+    return `${item.sprite}-${item.price}`;
+}
+
+function applyShopSort(items, isSell) {
+    const sort = game.shopSort || 'price-asc';
+    const rarityOrder = { common: 1, uncommon: 2, rare: 3, epic: 4, legendary: 5 };
+    return items.slice().sort((a, b) => {
+        if (sort === 'name-asc') {
+            return a.name.localeCompare(b.name);
+        }
+        if (sort === 'price-desc') {
+            const priceA = (isSell ? a.price * (a.count || 1) : a.price);
+            const priceB = (isSell ? b.price * (b.count || 1) : b.price);
+            return priceB - priceA;
+        }
+        if (sort === 'rarity') {
+            const rA = rarityOrder[a.rarity] || 0;
+            const rB = rarityOrder[b.rarity] || 0;
+            return rB - rA;
+        }
+        const priceA = (isSell ? a.price * (a.count || 1) : a.price);
+        const priceB = (isSell ? b.price * (b.count || 1) : b.price);
+        return priceA - priceB;
+    });
 }
 
 function updateShopDisplay() {
-    // Buy section
     const buySection = document.getElementById('shop-buy');
-    buySection.innerHTML = '';
-    
-    SHOP_ITEMS.forEach(item => {
-        const div = document.createElement('div');
-        div.className = 'shop-item';
-        
-        const iconDiv = document.createElement('div');
-        iconDiv.className = 'shop-item-icon';
-        const rodAuraClass = getRodAuraClass(item);
-        if (rodAuraClass) {
-            iconDiv.classList.add(rodAuraClass);
-        }
-        const spriteCanvas = createSpriteCanvas(item.sprite, 40);
-        spriteCanvas.style.imageRendering = 'pixelated';
-        iconDiv.appendChild(spriteCanvas);
-        
-        const detailsDiv = document.createElement('div');
-        detailsDiv.className = 'shop-item-details';
-        const h4 = document.createElement('h4');
-        h4.textContent = item.name;
-        const p = document.createElement('p');
-        p.textContent = item.type === 'rod' ? 'Upgrade your fishing rod' : 'Consumable item';
-        detailsDiv.appendChild(h4);
-        detailsDiv.appendChild(p);
-        if (item.type === 'rod' && item.buffs && item.buffs.length) {
-            const buffs = document.createElement('ul');
-            buffs.className = 'shop-item-buffs';
-            item.buffs.forEach((buff) => {
-                const li = document.createElement('li');
-                li.textContent = buff;
-                buffs.appendChild(li);
-            });
-            detailsDiv.appendChild(buffs);
-        } else if (item.type === 'consumable' && item.effects && item.effects.length) {
-            const effects = document.createElement('ul');
-            effects.className = 'shop-item-buffs';
-            item.effects.forEach((effect) => {
-                const li = document.createElement('li');
-                li.textContent = effect;
-                effects.appendChild(li);
-            });
-            detailsDiv.appendChild(effects);
-        }
-        
-        const infoDiv = document.createElement('div');
-        infoDiv.className = 'shop-item-info';
-        infoDiv.appendChild(iconDiv);
-        infoDiv.appendChild(detailsDiv);
-        
-        const priceDiv = document.createElement('div');
-        priceDiv.className = 'shop-item-price';
-        priceDiv.textContent = `$${item.price}`;
-        
-        div.appendChild(infoDiv);
-        div.appendChild(priceDiv);
-        div.addEventListener('click', () => buyItem(item));
-        buySection.appendChild(div);
-    });
-    
-    // Sell section
     const sellSection = document.getElementById('shop-sell');
+    if (!buySection || !sellSection) return;
+    const isBuyTab = game.shopTab === 'buy';
+    buySection.innerHTML = '';
     sellSection.innerHTML = '';
-    
-    game.inventory.forEach(item => {
-        if (item.price && item.sprite && item.type !== 'rod') {
-            const div = document.createElement('div');
-            div.className = 'shop-item';
-            if (isSellProtected(item)) {
-                div.classList.add('disabled');
-            }
-            
-            const iconDiv = document.createElement('div');
-            iconDiv.className = 'shop-item-icon';
-            const rodAuraClass = getRodAuraClass(item);
-            if (rodAuraClass) {
-                iconDiv.classList.add(rodAuraClass);
-            }
-            const spriteCanvas = createSpriteCanvas(item.sprite, 40);
-            spriteCanvas.style.imageRendering = 'pixelated';
-            iconDiv.appendChild(spriteCanvas);
-            
-            const detailsDiv = document.createElement('div');
-            detailsDiv.className = 'shop-item-details';
-            const h4 = document.createElement('h4');
-            h4.textContent = item.name;
-            const p = document.createElement('p');
-            p.className = `rarity-${item.rarity}`;
-            p.textContent = item.weight ? `${item.rarity} • ${item.weight.toFixed(1)}kg` : item.rarity;
-            detailsDiv.appendChild(h4);
-            detailsDiv.appendChild(p);
-            
-            const infoDiv = document.createElement('div');
-            infoDiv.className = 'shop-item-info';
-            infoDiv.appendChild(iconDiv);
-            infoDiv.appendChild(detailsDiv);
-            
-            const priceDiv = document.createElement('div');
-            priceDiv.className = 'shop-item-price';
-            priceDiv.textContent = `$${item.price * (item.count || 1)}`;
-            
-            div.appendChild(infoDiv);
-            div.appendChild(priceDiv);
-            if (!isSellProtected(item)) {
-                div.addEventListener('click', () => sellItem(item));
-            }
-            sellSection.appendChild(div);
+
+    const buyItems = applyShopSort(SHOP_ITEMS, false);
+    const sellItems = applyShopSort(game.inventory.filter(item => item.price && item.sprite && item.type !== 'rod'), true);
+
+    if (isBuyTab) {
+        buyItems.forEach(item => renderShopBuyItem(item, buySection));
+    } else {
+        sellItems.forEach(item => renderShopSellItem(item, sellSection));
+    }
+}
+
+function renderShopBuyItem(item, container) {
+    const div = document.createElement('div');
+    div.className = 'shop-item';
+    if (game.shopExpanded.buy.has(getShopItemKey(item, false))) {
+        div.classList.add('expanded');
+    }
+
+    const iconDiv = document.createElement('div');
+    iconDiv.className = 'shop-item-icon';
+    const rodAuraClass = getRodAuraClass(item);
+    if (rodAuraClass) {
+        iconDiv.classList.add(rodAuraClass);
+    }
+    const spriteCanvas = createSpriteCanvas(item.sprite, 40);
+    spriteCanvas.style.imageRendering = 'pixelated';
+    iconDiv.appendChild(spriteCanvas);
+
+    const detailsDiv = document.createElement('div');
+    detailsDiv.className = 'shop-item-details';
+    const h4 = document.createElement('h4');
+    h4.textContent = item.name;
+    const p = document.createElement('p');
+    p.className = 'shop-item-extra';
+    p.textContent = item.type === 'rod' ? 'Upgrade your fishing rod' : 'Consumable item';
+    detailsDiv.appendChild(h4);
+    detailsDiv.appendChild(p);
+    if (item.type === 'rod' && item.buffs && item.buffs.length) {
+        const buffs = document.createElement('ul');
+        buffs.className = 'shop-item-buffs shop-item-extra';
+        item.buffs.forEach((buff) => {
+            const li = document.createElement('li');
+            li.textContent = buff;
+            buffs.appendChild(li);
+        });
+        detailsDiv.appendChild(buffs);
+    } else if (item.type === 'consumable' && item.effects && item.effects.length) {
+        const effects = document.createElement('ul');
+        effects.className = 'shop-item-buffs shop-item-extra';
+        item.effects.forEach((effect) => {
+            const li = document.createElement('li');
+            li.textContent = effect;
+            effects.appendChild(li);
+        });
+        detailsDiv.appendChild(effects);
+    }
+
+    const infoDiv = document.createElement('div');
+    infoDiv.className = 'shop-item-info';
+    infoDiv.appendChild(iconDiv);
+    infoDiv.appendChild(detailsDiv);
+
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'shop-item-actions';
+    const priceDiv = document.createElement('div');
+    priceDiv.className = 'shop-item-price';
+    priceDiv.textContent = `$${item.price}`;
+    const buyBtn = document.createElement('button');
+    buyBtn.type = 'button';
+    buyBtn.className = 'close-btn';
+    buyBtn.textContent = 'Buy';
+    buyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        buyItem(item);
+    });
+    actionsDiv.appendChild(priceDiv);
+    actionsDiv.appendChild(buyBtn);
+
+    div.appendChild(infoDiv);
+    div.appendChild(actionsDiv);
+    div.addEventListener('click', () => toggleShopItemExpanded(div, item, false));
+    container.appendChild(div);
+}
+
+function renderShopSellItem(item, container) {
+    const div = document.createElement('div');
+    div.className = 'shop-item';
+    if (game.shopExpanded.sell.has(getShopItemKey(item, true))) {
+        div.classList.add('expanded');
+    }
+    if (isSellProtected(item)) {
+        div.classList.add('disabled');
+    }
+
+    const iconDiv = document.createElement('div');
+    iconDiv.className = 'shop-item-icon';
+    const rodAuraClass = getRodAuraClass(item);
+    if (rodAuraClass) {
+        iconDiv.classList.add(rodAuraClass);
+    }
+    const spriteCanvas = createSpriteCanvas(item.sprite, 40);
+    spriteCanvas.style.imageRendering = 'pixelated';
+    iconDiv.appendChild(spriteCanvas);
+
+    const detailsDiv = document.createElement('div');
+    detailsDiv.className = 'shop-item-details';
+    const h4 = document.createElement('h4');
+    h4.textContent = item.name;
+    const p = document.createElement('p');
+    p.className = `shop-item-extra rarity-${item.rarity}`;
+    p.textContent = item.weight ? `${item.rarity} - ${item.weight.toFixed(1)}kg` : item.rarity;
+    detailsDiv.appendChild(h4);
+    detailsDiv.appendChild(p);
+
+    const infoDiv = document.createElement('div');
+    infoDiv.className = 'shop-item-info';
+    infoDiv.appendChild(iconDiv);
+    infoDiv.appendChild(detailsDiv);
+
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'shop-item-actions';
+    const priceDiv = document.createElement('div');
+    priceDiv.className = 'shop-item-price';
+    priceDiv.textContent = `$${item.price * (item.count || 1)}`;
+    const sellBtn = document.createElement('button');
+    sellBtn.type = 'button';
+    sellBtn.className = 'close-btn';
+    sellBtn.textContent = 'Sell';
+    if (isSellProtected(item)) {
+        sellBtn.disabled = true;
+    }
+    sellBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!isSellProtected(item)) {
+            sellItem(item);
         }
     });
+    actionsDiv.appendChild(priceDiv);
+    actionsDiv.appendChild(sellBtn);
+
+    div.appendChild(infoDiv);
+    div.appendChild(actionsDiv);
+    div.addEventListener('click', () => toggleShopItemExpanded(div, item, true));
+    container.appendChild(div);
+}
+
+function toggleShopItemExpanded(card, item, isSell) {
+    const key = getShopItemKey(item, isSell);
+    const bucket = isSell ? game.shopExpanded.sell : game.shopExpanded.buy;
+    if (bucket.has(key)) {
+        bucket.delete(key);
+        card.classList.remove('expanded');
+    } else {
+        bucket.add(key);
+        card.classList.add('expanded');
+    }
 }
 
 function buyItem(item) {
@@ -4998,6 +5299,8 @@ function gameLoop() {
     updatePlayer();
     updateFishing(dt);
     updateWeather();
+    updateTutorialProgress();
+    updateTutorialOverlay();
     
     // Update palm tree animations
     game.palmTrees.forEach(tree => {
@@ -5010,3 +5313,4 @@ function gameLoop() {
 
 // Start game when page loads
 window.addEventListener('load', initStartScreen);
+

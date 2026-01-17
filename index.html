@@ -144,39 +144,48 @@
                 <button class="close-btn panel-close" data-panel="inventory-panel">Close</button>
             </div>
             <div id="shop-panel" class="panel hidden">
-                <h2>Shop</h2>
-                <div id="shop-content">
-                    <div class="shop-section">
-                        <h3>Buy</h3>
-                        <div id="shop-buy"></div>
+                <div class="shop-header">
+                    <h2>Shop</h2>
+                    <div class="shop-sort">
+                        <label for="shop-sort">Sort</label>
+                        <select id="shop-sort">
+                            <option value="price-asc">Price: Low → High</option>
+                            <option value="price-desc">Price: High → Low</option>
+                            <option value="name-asc">Name: A → Z</option>
+                            <option value="rarity">Rarity</option>
+                        </select>
                     </div>
-                    <div class="shop-section">
-                        <h3>Sell</h3>
-                        <div id="shop-sell"></div>
-                        <div id="sell-controls" class="sell-controls">
-                            <button id="sell-all" class="close-btn">Sell All Eligible</button>
-                            <div class="sell-settings">
-                                <div class="sell-settings-title">Sell Filters</div>
-                                <div class="sell-settings-row">
-                                    <span>Keep rarities</span>
-                                    <div id="sell-rarity-options" class="sell-rarity-options"></div>
-                                </div>
-                                <div class="sell-settings-row">
-                                    <label>
-                                        <input id="keep-big-enabled" type="checkbox">
-                                        Keep fish >=
-                                    </label>
-                                    <input id="keep-big-kg" type="number" min="0" step="0.1" value="0">
-                                    <span>kg</span>
-                                </div>
-                                <div class="sell-settings-row">
-                                    <label>
-                                        <input id="keep-small-enabled" type="checkbox">
-                                        Keep fish <=
-                                    </label>
-                                    <input id="keep-small-kg" type="number" min="0" step="0.1" value="0">
-                                    <span>kg</span>
-                                </div>
+                </div>
+                <div class="shop-tabs">
+                    <button id="shop-tab-buy" class="close-btn">Buy</button>
+                    <button id="shop-tab-sell" class="close-btn">Sell</button>
+                </div>
+                <div id="shop-content">
+                    <div id="shop-buy" class="shop-section"></div>
+                    <div id="shop-sell" class="shop-section hidden"></div>
+                    <div id="sell-controls" class="sell-controls hidden">
+                        <button id="sell-all" class="close-btn">Sell All Eligible</button>
+                        <div class="sell-settings">
+                            <div class="sell-settings-title">Sell Filters</div>
+                            <div class="sell-settings-row">
+                                <span>Keep rarities</span>
+                                <div id="sell-rarity-options" class="sell-rarity-options"></div>
+                            </div>
+                            <div class="sell-settings-row">
+                                <label>
+                                    <input id="keep-big-enabled" type="checkbox">
+                                    Keep fish >=
+                                </label>
+                                <input id="keep-big-kg" type="number" min="0" step="0.1" value="0">
+                                <span>kg</span>
+                            </div>
+                            <div class="sell-settings-row">
+                                <label>
+                                    <input id="keep-small-enabled" type="checkbox">
+                                    Keep fish <=
+                                </label>
+                                <input id="keep-small-kg" type="number" min="0" step="0.1" value="0">
+                                <span>kg</span>
                             </div>
                         </div>
                     </div>
@@ -308,6 +317,13 @@
                     <button id="tutorial-prev" class="close-btn">Back</button>
                     <button id="tutorial-next" class="close-btn">Next</button>
                     <button id="tutorial-close" class="close-btn">Close</button>
+                </div>
+            </div>
+            <div id="tutorial-overlay" class="tutorial-overlay hidden">
+                <div id="tutorial-spotlight" class="tutorial-spotlight"></div>
+                <div id="tutorial-tooltip" class="tutorial-tooltip">
+                    <div id="tutorial-text"></div>
+                    <div id="tutorial-arrow" class="tutorial-arrow"></div>
                 </div>
             </div>
         </div>
