@@ -2296,7 +2296,7 @@ function syncMultiplayer() {
     }));
 }
 
-const FISHING_STAGE_ORDER = ['track', 'targets', 'timing'];
+const FISHING_STAGE_ORDER = ['track', 'timing'];
 
 // Fishing Minigame
 function startFishing() {
@@ -2347,7 +2347,11 @@ function getRarityDifficulty(rarity) {
 function setupFishingStage() {
     const rodStats = game.fishing.rodStats || getRodStats(getEquippedRod());
     const timeMultiplier = rodStats.timeMultiplier || 1;
-    game.fishing.stageBaseTime = game.fishing.stageType === 'targets' ? 10 : 15;
+    if (game.fishing.stageType === 'track') {
+        game.fishing.stageBaseTime = 26;
+    } else {
+        game.fishing.stageBaseTime = 12;
+    }
     game.fishing.stageTimeRemaining = game.fishing.stageBaseTime * timeMultiplier;
     const accuracyArea = document.getElementById('fishing-accuracy-area');
     if (accuracyArea && game.fishing.stageType !== 'targets') {
@@ -2360,8 +2364,8 @@ function setupFishingStage() {
         game.fishing.targetPos = Math.max(20, Math.min(80, game.fishing.targetPos));
         game.fishing.indicatorSpeed = (2.2 + Math.random() * 1.2) * rodStats.indicatorSpeedMultiplier;
         game.fishing.targetWidth = 32 + rodStats.targetWidthBonus;
-        game.fishing.progressGain = 0.01 * rodStats.progressGainMultiplier;
-        game.fishing.progressLoss = 0.005 * rodStats.progressLossMultiplier;
+        game.fishing.progressGain = 0.006 * rodStats.progressGainMultiplier;
+        game.fishing.progressLoss = 0.003 * rodStats.progressLossMultiplier;
         game.fishing.fishSpeedMultiplier = rodStats.fishSpeedMultiplier * game.fishing.difficultyScale;
         game.fishing.progress = 0;
         game.fishing.fishPos = 50;
