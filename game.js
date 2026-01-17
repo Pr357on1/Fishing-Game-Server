@@ -58,12 +58,23 @@ const game = {
     inventory: [],
     inventoryMode: 'normal',
     inventorySelected: null,
+    inventoryTab: 'items',
     shopTab: 'buy',
     shopSort: 'price-asc',
     shopExpanded: {
         buy: new Set(),
         sell: new Set()
     },
+    fishIndex: {},
+    progress: {
+        level: 1,
+        xp: 0
+    },
+    quests: {
+        active: [],
+        completed: []
+    },
+    unlocks: {},
     hotbar: [null, null, null, null, null],
     selectedSlot: 0,
     money: 100,
@@ -360,6 +371,72 @@ const FISH_SIZE_MULTIPLIERS = {
     leviathan: 2.4
 };
 
+const QUEST_DEFS = [
+    {
+        id: 'catch_3',
+        giver: 'dockhand',
+        title: 'First Catches',
+        desc: 'Catch 3 fish.',
+        type: 'catch_count',
+        target: 3,
+        rewards: { xp: 40, money: 25, items: [{ sprite: 'bait', count: 3 }] }
+    },
+    {
+        id: 'sell_3',
+        giver: 'shopkeeper',
+        title: 'Fresh Sale',
+        desc: 'Sell 3 fish.',
+        type: 'sell_count',
+        target: 3,
+        rewards: { xp: 60, money: 60 }
+    },
+    {
+        id: 'catch_rare',
+        giver: 'dockhand',
+        title: 'Rare Bite',
+        desc: 'Catch a rare or better fish.',
+        type: 'catch_rarity',
+        target: 'rare',
+        rewards: { xp: 120, money: 120, buffs: [{ name: 'luck', durationMs: 30000, luckBonus: 0.06 }] }
+    },
+    {
+        id: 'big_catch',
+        giver: 'beachscout',
+        title: 'Big Catch',
+        desc: 'Catch a fish weighing 20kg or more.',
+        type: 'catch_weight',
+        target: 20,
+        rewards: { xp: 90, money: 90 }
+    },
+    {
+        id: 'sell_500',
+        giver: 'shopkeeper',
+        title: 'Market Momentum',
+        desc: 'Earn $500 from selling fish.',
+        type: 'sell_value',
+        target: 500,
+        rewards: { xp: 200, money: 150, unlocks: ['rod_master'] }
+    },
+    {
+        id: 'catch_epic',
+        giver: 'beachscout',
+        title: 'Epic Discovery',
+        desc: 'Catch an epic fish or better.',
+        type: 'catch_rarity',
+        target: 'epic',
+        rewards: { xp: 260, money: 220, unlocks: ['rod_reinforced'] }
+    },
+    {
+        id: 'sell_1500',
+        giver: 'shopkeeper',
+        title: 'Golden Seller',
+        desc: 'Earn $1500 from selling fish.',
+        type: 'sell_value',
+        target: 1500,
+        rewards: { xp: 350, money: 400, unlocks: ['rod_mythic'] }
+    }
+];
+
 function drawRoundedRect(ctx, x, y, w, h, r) {
     const radius = Math.min(r, w / 2, h / 2);
     ctx.beginPath();
@@ -392,6 +469,7 @@ const SHOP_ITEMS = [
         price: 200,
         type: 'rod',
         upgrade: 2,
+        unlockId: null,
         aura: 'advanced',
         buffs: ['Catch window +20%', 'Fish movement -15%', 'Rare chance +3%', 'Time +15%'],
         stats: {
@@ -410,6 +488,7 @@ const SHOP_ITEMS = [
         price: 500,
         type: 'rod',
         upgrade: 3,
+        unlockId: 'rod_master',
         aura: 'master',
         buffs: ['Catch window +35%', 'Fish movement -30%', 'Rare chance +7%', 'Catch progress +25%', 'Time +30%'],
         stats: {
@@ -428,6 +507,7 @@ const SHOP_ITEMS = [
         price: 900,
         type: 'rod',
         upgrade: 4,
+        unlockId: 'rod_reinforced',
         aura: 'advanced',
         buffs: ['Catch window +45%', 'Fish movement -35%', 'Rare chance +10%', 'Catch progress +35%', 'Time +45%'],
         stats: {
@@ -446,6 +526,7 @@ const SHOP_ITEMS = [
         price: 1800,
         type: 'rod',
         upgrade: 5,
+        unlockId: 'rod_mythic',
         aura: 'elite',
         buffs: ['Catch window +55%', 'Fish movement -45%', 'Rare chance +15%', 'Catch progress +50%', 'Time +60%'],
         stats: {
@@ -580,6 +661,14 @@ function init() {
 
     // Inventory actions
     initInventoryActions();
+
+    // Inventory tabs + progress UI
+    initInventoryTabs();
+    updateLevelUI();
+    updateFishIndexDisplay();
+
+    // Quests
+    initQuests();
     
     // Initialize hotbar selection
     selectHotbarSlot(0);
@@ -723,6 +812,8 @@ function sellAllEligible() {
     });
 
     toRemove.forEach((item) => {
+        const value = (item.price || 0) * (item.count || 1);
+        registerSell(item, value);
         const index = game.inventory.indexOf(item);
         if (index > -1) {
             game.inventory.splice(index, 1);
@@ -1257,9 +1348,16 @@ function applyDefaultState() {
         game.selectedSlot = 0;
     }
     game.money = 100;
+    game.progress = { level: 1, xp: 0 };
+    game.fishIndex = {};
+    game.quests = { active: [], completed: [] };
+    game.unlocks = {};
     game.multiplayer.hasLoadedState = true;
     updateHotbar();
     updateInventoryDisplay();
+    updateFishIndexDisplay();
+    updateQuestDisplay();
+    updateLevelUI();
     markSaveDirty(true);
 }
 
@@ -1275,6 +1373,13 @@ function applySavedState(state) {
     game.player.renderY = game.player.y;
     game.devMode = Boolean(state.devMode);
     game.nextItemId = typeof state.nextItemId === 'number' ? state.nextItemId : 0;
+    game.progress = state.progress ? {
+        level: state.progress.level || 1,
+        xp: state.progress.xp || 0
+    } : { level: 1, xp: 0 };
+    game.fishIndex = state.fishIndex || {};
+    game.quests = state.quests || { active: [], completed: [] };
+    game.unlocks = state.unlocks || {};
     if (state.sellSettings) {
         game.sellSettings = {
             ...DEFAULT_SELL_SETTINGS,
@@ -1332,11 +1437,15 @@ function sendSaveState(force = false) {
         passcode: game.multiplayer.passcode,
         avatar: game.multiplayer.avatar,
         money: game.money,
+        progress: game.progress,
         x: game.player.x,
         y: game.player.y,
         devMode: game.devMode,
         nextItemId: game.nextItemId,
         sellSettings: game.sellSettings,
+        fishIndex: game.fishIndex,
+        quests: game.quests,
+        unlocks: game.unlocks,
         inventory: game.inventory.map(serializeItem),
         hotbarIds: game.hotbar.map(item => item ? item.uid : null),
         selectedSlot: game.selectedSlot
@@ -1626,6 +1735,218 @@ function closeTutorial() {
     game.tutorial.currentStepId = null;
 }
 
+function initQuests() {
+    if (!game.quests.active.length && !game.quests.completed.length) {
+        game.quests.active = [];
+        game.quests.completed = [];
+    }
+    updateQuestDisplay();
+}
+
+function getQuestDef(id) {
+    return QUEST_DEFS.find(q => q.id === id);
+}
+
+function isQuestActive(id) {
+    return game.quests.active.some(q => q.id === id);
+}
+
+function isQuestCompleted(id) {
+    return game.quests.completed.includes(id);
+}
+
+function activateQuest(id) {
+    if (isQuestActive(id) || isQuestCompleted(id)) return;
+    const def = getQuestDef(id);
+    if (!def) return;
+    game.quests.active.push({ id, progress: 0, completed: false, value: 0 });
+    showToast(`New quest: ${def.title}`, 'info');
+    updateQuestDisplay();
+    markSaveDirty();
+}
+
+function updateQuestProgress(type, payload) {
+    if (!game.quests.active.length) return;
+    const rarityRank = { common: 1, uncommon: 2, rare: 3, epic: 4, legendary: 5 };
+    game.quests.active.forEach((quest) => {
+        const def = getQuestDef(quest.id);
+        if (!def || quest.completed) return;
+        if (def.type === 'catch_count' && type === 'catch') {
+            quest.progress += 1;
+        } else if (def.type === 'sell_count' && type === 'sell') {
+            quest.progress += payload.count || 1;
+        } else if (def.type === 'catch_rarity' && type === 'catch') {
+            const rank = rarityRank[payload.rarity] || 0;
+            if (rank >= (rarityRank[def.target] || 0)) {
+                quest.progress = 1;
+            }
+        } else if (def.type === 'catch_weight' && type === 'catch') {
+            if ((payload.weight || 0) >= def.target) {
+                quest.progress = 1;
+            }
+        } else if (def.type === 'sell_value' && type === 'sell') {
+            quest.value = (quest.value || 0) + (payload.value || 0);
+            quest.progress = Math.min(def.target, quest.value);
+        }
+        if (quest.progress >= def.target && !quest.completed) {
+            quest.completed = true;
+            completeQuest(quest.id);
+        }
+    });
+    updateQuestDisplay();
+}
+
+function completeQuest(id) {
+    const def = getQuestDef(id);
+    if (!def) return;
+    game.quests.active = game.quests.active.filter(q => q.id !== id);
+    game.quests.completed.push(id);
+    applyQuestRewards(def.rewards);
+    showToast(`Quest complete: ${def.title}`, 'success');
+    updateQuestDisplay();
+    markSaveDirty();
+}
+
+function applyQuestRewards(rewards) {
+    if (!rewards) return;
+    if (rewards.xp) addXp(rewards.xp);
+    if (rewards.money) {
+        game.money += rewards.money;
+    }
+    if (rewards.items) {
+        rewards.items.forEach((reward) => {
+            const item = SHOP_ITEMS.find(entry => entry.sprite === reward.sprite);
+            if (item) {
+                for (let i = 0; i < (reward.count || 1); i += 1) {
+                    addToInventory(item);
+                }
+            }
+        });
+    }
+    if (rewards.buffs) {
+        rewards.buffs.forEach((buff) => applyBuff(buff));
+    }
+    if (rewards.unlocks) {
+        rewards.unlocks.forEach((unlockId) => {
+            game.unlocks[unlockId] = true;
+        });
+    }
+}
+
+function updateQuestDisplay() {
+    const list = document.getElementById('quest-list');
+    if (!list) return;
+    list.innerHTML = '';
+    if (!game.quests.active.length) {
+        const empty = document.createElement('div');
+        empty.className = 'quest-card';
+        empty.textContent = 'No active quests yet.';
+        list.appendChild(empty);
+        return;
+    }
+    game.quests.active.forEach((quest) => {
+        const def = getQuestDef(quest.id);
+        if (!def) return;
+        const card = document.createElement('div');
+        card.className = 'quest-card';
+        const title = document.createElement('div');
+        title.className = 'quest-title';
+        title.textContent = def.title;
+        const giver = document.createElement('div');
+        giver.className = 'quest-giver';
+        giver.textContent = `From: ${def.giver}`;
+        const desc = document.createElement('div');
+        desc.textContent = def.desc;
+        const progress = document.createElement('div');
+        progress.className = 'quest-progress';
+        progress.textContent = `${Math.min(def.target, quest.progress)} / ${def.target}`;
+        const rewards = document.createElement('div');
+        rewards.className = 'quest-rewards';
+        rewards.textContent = formatQuestRewards(def.rewards);
+        card.appendChild(title);
+        card.appendChild(giver);
+        card.appendChild(desc);
+        card.appendChild(progress);
+        card.appendChild(rewards);
+        list.appendChild(card);
+    });
+}
+
+function formatQuestRewards(rewards) {
+    if (!rewards) return 'Rewards: -';
+    const parts = [];
+    if (rewards.xp) parts.push(`${rewards.xp} XP`);
+    if (rewards.money) parts.push(`$${rewards.money}`);
+    if (rewards.items) {
+        rewards.items.forEach((item) => {
+            parts.push(`${item.count || 1}x ${item.sprite}`);
+        });
+    }
+    if (rewards.unlocks) {
+        rewards.unlocks.forEach((unlock) => parts.push(`Unlock: ${formatUnlockLabel(unlock)}`));
+    }
+    return `Rewards: ${parts.join(', ') || '-'}`;
+}
+
+function formatUnlockLabel(unlock) {
+    const map = {
+        rod_master: 'Master Rod',
+        rod_reinforced: 'Reinforced Rod',
+        rod_mythic: 'Mythic Rod'
+    };
+    return map[unlock] || unlock;
+}
+
+function updateQuestGivers() {
+    const dock = game.island.dock;
+    const givers = [
+        { id: 'dockhand', name: 'Dockhand', x: dock.x + dock.width * 0.3, y: dock.y - 20, range: 120 },
+        { id: 'shopkeeper', name: 'Shopkeeper', x: game.shopKeeper.x, y: game.shopKeeper.y, range: 120 },
+        { id: 'beachscout', name: 'Beach Scout', x: game.island.x + 160, y: groundSurfaceAt(game.island.x + 160) - 40, range: 120 }
+    ];
+    givers.forEach((giver) => {
+        const dx = game.player.x - giver.x;
+        const dy = game.player.y - giver.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist <= giver.range) {
+            QUEST_DEFS.filter(q => q.giver === giver.id).forEach((quest) => activateQuest(quest.id));
+        }
+    });
+}
+
+function updateFishIndexDisplay() {
+    const container = document.getElementById('fish-index');
+    if (!container) return;
+    container.innerHTML = '';
+    const allFish = Object.values(FISH_TYPES).flat();
+    allFish.forEach((fish) => {
+        const entry = game.fishIndex[fish.sprite];
+        const card = document.createElement('div');
+        card.className = 'fish-index-card';
+        if (!entry?.caught) {
+            card.classList.add('uncaught');
+        }
+        const icon = document.createElement('div');
+        const canvas = createSpriteCanvas(fish.sprite, 32);
+        canvas.style.imageRendering = 'pixelated';
+        icon.appendChild(canvas);
+        const name = document.createElement('div');
+        name.className = 'fish-index-name';
+        name.textContent = entry?.caught ? fish.name : '???';
+        const meta = document.createElement('div');
+        meta.className = 'fish-index-meta';
+        if (entry?.caught) {
+            const largest = entry.largest ? `${entry.largest.toFixed(1)}kg` : '0kg';
+            meta.textContent = `${entry.count} caught • Max ${largest}`;
+        } else {
+            meta.textContent = 'Not caught';
+        }
+        card.appendChild(icon);
+        card.appendChild(name);
+        card.appendChild(meta);
+        container.appendChild(card);
+    });
+}
 function showTutorialOverlay() {
     const overlay = document.getElementById('tutorial-overlay');
     if (overlay) overlay.classList.remove('hidden');
@@ -1647,6 +1968,12 @@ function ensureTutorialRod() {
     game.selectedSlot = 0;
     updateHotbar();
     updateInventoryDisplay();
+    if (!Object.keys(game.fishIndex).length) {
+        rebuildFishIndexFromInventory();
+    }
+    updateFishIndexDisplay();
+    updateQuestDisplay();
+    updateLevelUI();
 }
 
 function updateTutorialOverlay() {
@@ -2611,6 +2938,7 @@ function updatePlayer() {
         if (game.dialogue.active && dist > game.shopKeeper.interactionRange + 20) {
             closeDialogue();
         }
+        updateQuestGivers();
     }
     
     // Update camera to follow player
@@ -3053,6 +3381,7 @@ function endFishing(success) {
         const weight = generateFishWeight(fish, rarity);
         const item = createWeightedFish(fish, rarity, weight);
         addToInventory(item);
+        registerCatch(item);
         game.fishing.catchDisplay = { item, timer: 1.2 };
         game.tutorial.flags.fishCaught = true;
         showCatchPopup(item, rarityChance);
@@ -3093,6 +3422,66 @@ function createWeightedFish(fish, rarity, weight) {
     const weightMultiplier = 0.6 + (weight / maxWeight);
     const price = Math.max(1, Math.round(fish.price * weightMultiplier));
     return { ...fish, weight, price, rarity };
+}
+
+function getXpNeeded(level) {
+    return 100 + level * 75;
+}
+
+function addXp(amount) {
+    if (!amount || amount <= 0) return;
+    game.progress.xp += amount;
+    while (game.progress.xp >= getXpNeeded(game.progress.level)) {
+        game.progress.xp -= getXpNeeded(game.progress.level);
+        game.progress.level += 1;
+        showToast(`Level Up! Level ${game.progress.level}`, 'success');
+    }
+    updateLevelUI();
+    markSaveDirty();
+}
+
+function updateLevelUI() {
+    const label = document.getElementById('level-label');
+    const fill = document.getElementById('xp-fill');
+    const text = document.getElementById('xp-text');
+    const needed = getXpNeeded(game.progress.level);
+    if (label) label.textContent = `Level ${game.progress.level}`;
+    if (fill) fill.style.width = `${Math.min(100, (game.progress.xp / needed) * 100)}%`;
+    if (text) text.textContent = `${Math.round(game.progress.xp)} / ${needed} XP`;
+}
+
+function registerCatch(item) {
+    if (!item || !item.sprite) return;
+    const key = item.sprite;
+    const entry = game.fishIndex[key] || { count: 0, largest: 0 };
+    entry.count += 1;
+    entry.largest = Math.max(entry.largest || 0, item.weight || 0);
+    entry.caught = true;
+    game.fishIndex[key] = entry;
+    const rarityBonus = { common: 6, uncommon: 10, rare: 16, epic: 22, legendary: 35 }[item.rarity] || 6;
+    const weightBonus = Math.min(25, Math.floor((item.weight || 0) / 2));
+    addXp(rarityBonus + weightBonus);
+    updateFishIndexDisplay();
+    updateQuestProgress('catch', item);
+}
+
+function registerSell(item, value) {
+    const xpGain = Math.max(2, Math.floor((value || 0) / 8));
+    addXp(xpGain);
+    updateQuestProgress('sell', { item, value: value || 0, count: item?.count || 1 });
+}
+
+function rebuildFishIndexFromInventory() {
+    const index = {};
+    game.inventory.forEach((item) => {
+        if (!item || !item.weight || !item.sprite) return;
+        const entry = index[item.sprite] || { count: 0, largest: 0, caught: true };
+        entry.count += 1;
+        entry.largest = Math.max(entry.largest, item.weight || 0);
+        entry.caught = true;
+        index[item.sprite] = entry;
+    });
+    game.fishIndex = index;
 }
 
 function getFishDisplaySize(item, baseSize = FISH_RENDER_BASE_SIZE) {
@@ -3509,6 +3898,38 @@ function openInventoryForSell() {
     if (panel) panel.classList.remove('hidden');
 }
 
+function initInventoryTabs() {
+    const tabItems = document.getElementById('inventory-tab-items');
+    const tabIndex = document.getElementById('inventory-tab-index');
+    const tabQuests = document.getElementById('inventory-tab-quests');
+    if (tabItems) tabItems.addEventListener('click', () => setInventoryTab('items'));
+    if (tabIndex) tabIndex.addEventListener('click', () => setInventoryTab('index'));
+    if (tabQuests) tabQuests.addEventListener('click', () => setInventoryTab('quests'));
+    setInventoryTab(game.inventoryTab || 'items');
+}
+
+function setInventoryTab(tab) {
+    game.inventoryTab = tab;
+    const grid = document.getElementById('inventory-grid');
+    const index = document.getElementById('fish-index');
+    const quests = document.getElementById('quest-list');
+    if (grid) grid.classList.toggle('hidden', tab !== 'items');
+    if (index) index.classList.toggle('hidden', tab !== 'index');
+    if (quests) quests.classList.toggle('hidden', tab !== 'quests');
+    const tabItems = document.getElementById('inventory-tab-items');
+    const tabIndex = document.getElementById('inventory-tab-index');
+    const tabQuests = document.getElementById('inventory-tab-quests');
+    if (tabItems) tabItems.classList.toggle('active-tab', tab === 'items');
+    if (tabIndex) tabIndex.classList.toggle('active-tab', tab === 'index');
+    if (tabQuests) tabQuests.classList.toggle('active-tab', tab === 'quests');
+    if (tab !== 'items') {
+        setInventoryMode('normal');
+    }
+    updateInventoryDisplay();
+    updateFishIndexDisplay();
+    updateQuestDisplay();
+}
+
 function getRodAuraClass(rod) {
     if (!rod || !rod.aura) return '';
     if (rod.aura === 'master') return 'rod-aura-master';
@@ -3688,6 +4109,10 @@ function applyShopSort(items, isSell) {
     });
 }
 
+function isShopItemLocked(item) {
+    return Boolean(item.unlockId && !game.unlocks[item.unlockId]);
+}
+
 function updateShopDisplay() {
     const buySection = document.getElementById('shop-buy');
     const sellSection = document.getElementById('shop-sell');
@@ -3712,6 +4137,9 @@ function renderShopBuyItem(item, container) {
     if (game.shopExpanded.buy.has(getShopItemKey(item, false))) {
         div.classList.add('expanded');
     }
+    if (isShopItemLocked(item)) {
+        div.classList.add('disabled');
+    }
 
     const iconDiv = document.createElement('div');
     iconDiv.className = 'shop-item-icon';
@@ -3730,6 +4158,9 @@ function renderShopBuyItem(item, container) {
     const p = document.createElement('p');
     p.className = 'shop-item-extra';
     p.textContent = item.type === 'rod' ? 'Upgrade your fishing rod' : 'Consumable item';
+    if (isShopItemLocked(item)) {
+        p.textContent = 'Locked reward';
+    }
     detailsDiv.appendChild(h4);
     detailsDiv.appendChild(p);
     if (item.type === 'rod' && item.buffs && item.buffs.length) {
@@ -3766,6 +4197,9 @@ function renderShopBuyItem(item, container) {
     buyBtn.type = 'button';
     buyBtn.className = 'close-btn';
     buyBtn.textContent = 'Buy';
+    if (isShopItemLocked(item)) {
+        buyBtn.disabled = true;
+    }
     buyBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         buyItem(item);
@@ -3854,6 +4288,10 @@ function toggleShopItemExpanded(card, item, isSell) {
 }
 
 function buyItem(item) {
+    if (isShopItemLocked(item)) {
+        showToast('This item is locked by a quest reward.', 'info');
+        return;
+    }
     if (game.money >= item.price) {
         game.money -= item.price;
         if (item.type === 'rod') {
@@ -3888,6 +4326,7 @@ function sellItem(item) {
     }
     const price = item.price * (item.count || 1);
     game.money += price;
+    registerSell(item, price);
     markSaveDirty();
     
     const index = game.inventory.indexOf(item);

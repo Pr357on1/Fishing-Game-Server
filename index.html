@@ -140,7 +140,21 @@
             </div>
             <div id="inventory-panel" class="panel hidden">
                 <h2>Inventory</h2>
+                <div class="inventory-header">
+                    <div class="inventory-tabs">
+                        <button id="inventory-tab-items" class="close-btn">Items</button>
+                        <button id="inventory-tab-index" class="close-btn">Fish Index</button>
+                        <button id="inventory-tab-quests" class="close-btn">Quests</button>
+                    </div>
+                    <div class="inventory-level">
+                        <div id="level-label" class="level-label">Level 1</div>
+                        <div class="xp-bar"><div id="xp-fill" class="xp-fill"></div></div>
+                        <div id="xp-text" class="xp-text">0 / 100 XP</div>
+                    </div>
+                </div>
                 <div id="inventory-grid"></div>
+                <div id="fish-index" class="fish-index hidden"></div>
+                <div id="quest-list" class="quest-list hidden"></div>
                 <div id="inventory-actions" class="inventory-actions hidden">
                     <button id="inventory-sell" class="close-btn">Sell Selected</button>
                     <button id="inventory-cancel" class="close-btn">Cancel</button>

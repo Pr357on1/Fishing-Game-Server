@@ -481,6 +481,130 @@ body {
     min-width: 500px;
 }
 
+#inventory-panel .inventory-header {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.inventory-tabs {
+    display: flex;
+    gap: 10px;
+}
+
+.inventory-tabs .close-btn {
+    flex: 1;
+}
+
+.inventory-tabs .active-tab {
+    background: linear-gradient(135deg, #ff9b2f 0%, #ff6b3a 100%);
+    color: #ffffff;
+}
+
+.inventory-level {
+    background: #eef4ff;
+    border-radius: 14px;
+    padding: 10px 12px;
+    border: 1px solid rgba(76, 120, 230, 0.15);
+}
+
+.level-label {
+    font-weight: 800;
+    color: #2d45a8;
+}
+
+.xp-bar {
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(45, 69, 168, 0.15);
+    overflow: hidden;
+    margin: 6px 0;
+}
+
+.xp-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #58d8e7, #4d6ef2);
+}
+
+.xp-text {
+    font-size: 12px;
+    font-weight: 700;
+    color: #2d45a8;
+}
+
+#fish-index {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.fish-index-card {
+    background: #ffffff;
+    border-radius: 12px;
+    border: 1px solid rgba(76, 120, 230, 0.12);
+    padding: 8px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #2d45a8;
+    position: relative;
+}
+
+.fish-index-card.uncaught {
+    filter: grayscale(1);
+    opacity: 0.55;
+}
+
+.fish-index-card .fish-index-name {
+    margin-top: 6px;
+    font-size: 11px;
+}
+
+.fish-index-card .fish-index-meta {
+    margin-top: 4px;
+    font-size: 10px;
+    color: #5060a3;
+}
+
+#quest-list {
+    display: grid;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.quest-card {
+    background: #ffffff;
+    border-radius: 14px;
+    border: 1px solid rgba(76, 120, 230, 0.12);
+    padding: 10px 12px;
+    display: grid;
+    gap: 6px;
+}
+
+.quest-title {
+    font-weight: 800;
+    color: #2d45a8;
+}
+
+.quest-giver {
+    font-size: 11px;
+    font-weight: 700;
+    color: #6c7bc4;
+}
+
+.quest-progress {
+    font-size: 12px;
+    font-weight: 700;
+    color: #2d45a8;
+}
+
+.quest-rewards {
+    font-size: 11px;
+    color: #5060a3;
+}
 #inventory-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
