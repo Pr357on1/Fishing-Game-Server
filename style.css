@@ -453,6 +453,11 @@ body {
     box-shadow: 0 0 22px rgba(42, 157, 143, 0.45);
 }
 
+.hotbar-slot.drag-over {
+    border-color: rgba(233, 196, 106, 0.9);
+    box-shadow: 0 0 18px rgba(233, 196, 106, 0.45);
+}
+
 .slot-content {
     width: 50px;
     height: 50px;
@@ -463,6 +468,18 @@ body {
     justify-content: center;
     font-size: 24px;
     position: relative;
+}
+
+.hotbar-count {
+    position: absolute;
+    top: 4px;
+    left: 6px;
+    background: rgba(10, 12, 16, 0.75);
+    color: #ffffff;
+    font-size: 11px;
+    padding: 1px 5px;
+    border-radius: 10px;
+    font-weight: 700;
 }
 
 .slot-number {

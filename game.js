@@ -55,6 +55,7 @@ const game = {
     keys: {},
     keybinds: {},
     keybindCapture: null,
+    dragPayload: null,
     inventory: [],
     inventoryMode: 'normal',
     inventorySelected: null,
@@ -694,6 +695,8 @@ const DEFAULT_SELL_SETTINGS = {
     keepSmallKg: 1
 };
 
+const HOTBAR_STACK_MAX = 999;
+
 function loadSellSettings() {
     try {
         const raw = localStorage.getItem('sellSettings');
@@ -809,6 +812,7 @@ function sellAllEligible() {
     const toRemove = [];
     game.inventory.forEach((item) => {
         if (!item.price || !item.sprite || item.type === 'rod') return;
+        if (game.hotbar.includes(item)) return;
         if (isSellProtected(item)) return;
         total += item.price * (item.count || 1);
         toRemove.push(item);
@@ -2583,7 +2587,54 @@ function setupEventListeners() {
     // Hotbar selection
     document.querySelectorAll('.hotbar-slot').forEach((slot, index) => {
         slot.addEventListener('click', () => selectHotbarSlot(index));
+        slot.addEventListener('dragstart', (e) => {
+            const item = game.hotbar[index];
+            if (!item) {
+                e.preventDefault();
+                return;
+            }
+            ensureItemId(item);
+            setDragPayload({ source: 'hotbar', uid: item.uid, fromSlot: index });
+            e.dataTransfer?.setData('text/plain', item.uid);
+            e.dataTransfer.effectAllowed = 'move';
+        });
+        slot.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            slot.classList.add('drag-over');
+        });
+        slot.addEventListener('dragleave', () => {
+            slot.classList.remove('drag-over');
+        });
+        slot.addEventListener('drop', (e) => {
+            e.preventDefault();
+            slot.classList.remove('drag-over');
+            const payload = getDragPayload();
+            if (!payload) return;
+            const item = getInventoryItemByUid(payload.uid);
+            if (!item) return;
+            if (payload.source === 'hotbar' && payload.fromSlot === index) return;
+            assignItemToHotbar(index, item);
+        });
+        slot.addEventListener('dragend', () => {
+            slot.classList.remove('drag-over');
+            clearDragPayload();
+        });
     });
+
+    const inventoryGrid = document.getElementById('inventory-grid');
+    if (inventoryGrid) {
+        inventoryGrid.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+        inventoryGrid.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const payload = getDragPayload();
+            if (!payload || payload.source !== 'hotbar') return;
+            if (typeof payload.fromSlot === 'number') {
+                clearHotbarSlot(payload.fromSlot);
+            }
+        });
+    }
     
     // Hotbar keybinds
     document.addEventListener('keydown', (e) => {
@@ -3847,11 +3898,65 @@ function useConsumable(item) {
     consumeItem(item);
 }
 
+function getInventoryItemByUid(uid) {
+    return game.inventory.find(item => item.uid === uid);
+}
+
+function splitStackForHotbar(item) {
+    if (!item || !item.count || item.weight || item.count <= HOTBAR_STACK_MAX) return item;
+    const hotbarItem = ensureItemId({ ...item, uid: null, count: HOTBAR_STACK_MAX });
+    item.count -= HOTBAR_STACK_MAX;
+    game.inventory.push(hotbarItem);
+    return hotbarItem;
+}
+
+function assignItemToHotbar(slotIndex, item) {
+    if (!item) return;
+    let targetItem = item;
+    if (!game.hotbar.includes(item)) {
+        targetItem = splitStackForHotbar(item);
+    }
+    const existingSlot = game.hotbar.findIndex(slotItem => slotItem === targetItem);
+    if (existingSlot > -1 && existingSlot !== slotIndex) {
+        game.hotbar[existingSlot] = null;
+    }
+    game.hotbar[slotIndex] = targetItem;
+    updateHotbar();
+    updateInventoryDisplay();
+    markSaveDirty();
+}
+
+function clearHotbarSlot(slotIndex) {
+    if (game.hotbar[slotIndex]) {
+        game.hotbar[slotIndex] = null;
+        updateHotbar();
+        updateInventoryDisplay();
+        markSaveDirty();
+    }
+}
+
+function setDragPayload(payload) {
+    game.dragPayload = payload;
+}
+
+function getDragPayload() {
+    return game.dragPayload;
+}
+
+function clearDragPayload() {
+    game.dragPayload = null;
+}
+
 function updateInventoryDisplay() {
     const grid = document.getElementById('inventory-grid');
     grid.innerHTML = '';
-    
-    game.inventory.forEach((item, index) => {
+
+    const hotbarItems = new Set(game.hotbar.filter(Boolean));
+
+    game.inventory.forEach((item) => {
+        if (hotbarItems.has(item)) {
+            return;
+        }
         const div = document.createElement('div');
         div.className = 'inventory-item';
         if (item.favorite) {
@@ -3887,7 +3992,7 @@ function updateInventoryDisplay() {
         countDiv.className = 'item-count';
         countDiv.textContent = item.weight ? `${item.weight.toFixed(1)}kg` : (item.count || 1);
         div.appendChild(countDiv);
-        
+
         div.addEventListener('click', () => {
             if (game.inventoryMode === 'sell') {
                 game.inventorySelected = item;
@@ -3895,9 +4000,7 @@ function updateInventoryDisplay() {
                 return;
             }
             const slot = game.selectedSlot;
-            game.hotbar[slot] = item;
-            updateHotbar();
-            markSaveDirty();
+            assignItemToHotbar(slot, item);
         });
         div.addEventListener('contextmenu', (e) => {
             e.preventDefault();
@@ -3905,6 +4008,18 @@ function updateInventoryDisplay() {
             updateInventoryDisplay();
             markSaveDirty();
         });
+        if (game.inventoryMode === 'normal') {
+            div.draggable = true;
+            div.addEventListener('dragstart', (e) => {
+                ensureItemId(item);
+                setDragPayload({ source: 'inventory', uid: item.uid });
+                e.dataTransfer?.setData('text/plain', item.uid);
+                e.dataTransfer.effectAllowed = 'move';
+            });
+            div.addEventListener('dragend', () => {
+                clearDragPayload();
+            });
+        }
         grid.appendChild(div);
     });
     refreshMultiplayerUI();
@@ -3920,6 +4035,7 @@ function updateHotbar() {
         content.style.background = '#ecf0f1';
         content.classList.remove('rod-aura-advanced', 'rod-aura-master');
         
+        slot.draggable = Boolean(item);
         if (item && item.sprite) {
             // Create sprite canvas
             const spriteCanvas = createSpriteCanvas(item.sprite, 40);
@@ -3929,6 +4045,12 @@ function updateHotbar() {
             const rodAuraClass = getRodAuraClass(item);
             if (rodAuraClass) {
                 content.classList.add(rodAuraClass);
+            }
+            if (!item.weight && item.count && item.count > 1) {
+                const count = document.createElement('div');
+                count.className = 'hotbar-count';
+                count.textContent = Math.min(item.count, HOTBAR_STACK_MAX);
+                content.appendChild(count);
             }
         }
     });
@@ -4250,7 +4372,10 @@ function updateShopDisplay() {
     sellSection.innerHTML = '';
 
     const buyItems = applyShopSort(SHOP_ITEMS, false);
-    const sellItems = applyShopSort(game.inventory.filter(item => item.price && item.sprite && item.type !== 'rod'), true);
+    const sellItems = applyShopSort(
+        game.inventory.filter(item => item.price && item.sprite && item.type !== 'rod' && !game.hotbar.includes(item)),
+        true
+    );
 
     if (isBuyTab) {
         buyItems.forEach(item => renderShopBuyItem(item, buySection));
@@ -4476,6 +4601,7 @@ function countSellEligible() {
     let count = 0;
     game.inventory.forEach((item) => {
         if (!item || !item.price || !item.sprite || item.type === 'rod') return;
+        if (game.hotbar.includes(item)) return;
         if (isSellProtected(item)) return;
         count += 1;
     });
