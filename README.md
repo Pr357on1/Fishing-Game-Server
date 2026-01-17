@@ -10,7 +10,6 @@ A beautiful, minimalistic fishing game set on a tropical island with smooth anim
 - **Island World**: Explore a tropical island with animated palm trees
 - **Camera System**: Smooth camera that follows your character
 - **Fish Rarities**: Common, Uncommon, Rare, Epic, and Legendary fish
-- **Dev Commands**: Special developer mode for testing and debugging
 
 ## How to Play
 
@@ -22,7 +21,6 @@ A beautiful, minimalistic fishing game set on a tropical island with smooth anim
 - **E**: Interact with shop keeper (when nearby)
 - **I**: Open inventory
 - **1-5**: Select hotbar slots
-- **F3**: Open dev panel (requires dev code)
 
 ### Fishing
 1. Press **F** to start fishing
@@ -39,20 +37,6 @@ A beautiful, minimalistic fishing game set on a tropical island with smooth anim
 1. Press **I** to open your inventory
 2. Click on items to add them to your hotbar
 3. Use number keys 1-5 to quickly select hotbar items
-
-## Developer Mode
-
-To enable developer commands:
-1. Enter the dev code when prompted (or press the dev code input)
-2. Code: `prestoniscool`
-3. Press **F3** to open the dev command panel
-
-### Dev Commands
-- `fly` - Toggle flying mode
-- `give fish [rarity]` - Give yourself a fish (rarity: common, uncommon, rare, epic, legendary)
-- `give money [amount]` - Give yourself money
-- `teleport [x] [y]` - Teleport to coordinates
-- `speed [value]` - Change player movement speed
 
 ## Fish Rarities
 
