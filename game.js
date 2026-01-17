@@ -154,6 +154,7 @@ const game = {
         timingTargetWidth: 18,
         timingSpeed: 1,
         pendingFish: null,
+        forceNextCatch: null,
         preCatchTimer: null
     },
     weather: {
@@ -386,7 +387,7 @@ const QUEST_DEFS = [
     },
     {
         id: 'sell_3',
-        giver: 'shopkeeper',
+        giver: 'dockhand',
         title: 'Fresh Sale',
         desc: 'Sell 3 fish.',
         type: 'sell_count',
@@ -408,12 +409,12 @@ const QUEST_DEFS = [
         title: 'Big Catch',
         desc: 'Catch a fish weighing 20kg or more.',
         type: 'catch_weight',
-        target: 20,
+        target: 1,
         rewards: { xp: 90, money: 90 }
     },
     {
         id: 'sell_500',
-        giver: 'shopkeeper',
+        giver: 'dockhand',
         title: 'Market Momentum',
         desc: 'Earn $500 from selling fish.',
         type: 'sell_value',
@@ -427,16 +428,16 @@ const QUEST_DEFS = [
         desc: 'Catch an epic fish or better.',
         type: 'catch_rarity',
         target: 'epic',
-        rewards: { xp: 260, money: 220, unlocks: ['rod_reinforced'] }
+        rewards: { xp: 260, money: 220, unlocks: ['rod_reinforced'], items: [{ sprite: 'charmStage2', count: 1 }] }
     },
     {
         id: 'sell_1500',
-        giver: 'shopkeeper',
+        giver: 'dockhand',
         title: 'Golden Seller',
         desc: 'Earn $1500 from selling fish.',
         type: 'sell_value',
         target: 1500,
-        rewards: { xp: 350, money: 400, unlocks: ['rod_mythic'] }
+        rewards: { xp: 350, money: 400, unlocks: ['rod_mythic'], items: [{ sprite: 'charmStage1', count: 1 }] }
     }
 ];
 
@@ -562,6 +563,22 @@ const SHOP_ITEMS = [
         price: 90,
         type: 'consumable',
         effects: ['Move speed +25%', 'Duration 45s']
+    },
+    {
+        name: 'Reel Skip Charm',
+        sprite: 'charmStage1',
+        price: 0,
+        type: 'consumable',
+        questOnly: true,
+        effects: ['Skip Stage 1 (Reel)', 'Duration 60s']
+    },
+    {
+        name: 'Timing Skip Charm',
+        sprite: 'charmStage2',
+        price: 0,
+        type: 'consumable',
+        questOnly: true,
+        effects: ['Skip Stage 2 (Timing)', 'Duration 60s']
     }
 ];
 
@@ -807,13 +824,13 @@ function isSellProtected(item) {
     return false;
 }
 
-function sellAllEligible() {
+function sellAllFish({ includeProtected = false, includeHotbar = false, toastLabel = 'fish' } = {}) {
     let total = 0;
     const toRemove = [];
     game.inventory.forEach((item) => {
         if (!item.price || !item.sprite || item.type === 'rod') return;
-        if (game.hotbar.includes(item)) return;
-        if (isSellProtected(item)) return;
+        if (!includeHotbar && game.hotbar.includes(item)) return;
+        if (!includeProtected && isSellProtected(item)) return;
         total += item.price * (item.count || 1);
         toRemove.push(item);
     });
@@ -836,19 +853,17 @@ function sellAllEligible() {
         }
     });
 
-    if (total > 0) {
-        game.money += total;
-        showToast(`Sold all eligible fish: +$${total}`, 'success');
-    } else {
-        showToast('Nothing to sell.', 'info');
-    }
+    game.money += total;
+    showToast(`Sold all ${toastLabel}: +$${total}`, 'success');
     markSaveDirty();
     updateHotbar();
     updateInventoryDisplay();
     updateShopDisplay();
-    if (total > 0) {
-        game.tutorial.flags.fishSold = true;
-    }
+    game.tutorial.flags.fishSold = true;
+}
+
+function sellAllEligible() {
+    sellAllFish({ includeProtected: false, includeHotbar: false, toastLabel: 'eligible fish' });
 }
 
 function initPlayerSetup() {
@@ -1425,6 +1440,7 @@ function applySavedState(state) {
     game.selectedSlot = typeof state.selectedSlot === 'number' ? state.selectedSlot : 0;
     selectHotbarSlot(game.selectedSlot);
     game.multiplayer.hasLoadedState = true;
+    reconcileQuestState();
     updateHotbar();
     updateInventoryDisplay();
     updateFishIndexDisplay();
@@ -1760,11 +1776,37 @@ function initQuests() {
         game.quests.active = [];
         game.quests.completed = [];
     }
+    reconcileQuestState();
     updateQuestDisplay();
 }
 
 function getQuestDef(id) {
     return QUEST_DEFS.find(q => q.id === id);
+}
+
+function getQuestTargetValue(def) {
+    if (!def) return 0;
+    if (def.type === 'catch_rarity') return 1;
+    if (def.type === 'catch_weight') return 1;
+    return def.target;
+}
+
+function reconcileQuestState() {
+    const toComplete = [];
+    game.quests.active = game.quests.active.filter((quest) => {
+        if (quest.completed) {
+            if (!game.quests.completed.includes(quest.id)) {
+                game.quests.completed.push(quest.id);
+            }
+            return false;
+        }
+        const def = getQuestDef(quest.id);
+        if (def && quest.progress >= getQuestTargetValue(def)) {
+            toComplete.push(quest.id);
+        }
+        return true;
+    });
+    toComplete.forEach((id) => completeQuest(id));
 }
 
 function isQuestActive(id) {
@@ -1785,12 +1827,51 @@ function activateQuest(id) {
     markSaveDirty();
 }
 
+function getQuestUnlockIds() {
+    const unlocks = new Set();
+    QUEST_DEFS.forEach((quest) => {
+        if (quest.rewards?.unlocks?.length) {
+            quest.rewards.unlocks.forEach(unlock => unlocks.add(unlock));
+        }
+    });
+    return Array.from(unlocks);
+}
+
+function completeAllQuests() {
+    QUEST_DEFS.forEach((quest) => {
+        if (isQuestCompleted(quest.id)) return;
+        if (isQuestActive(quest.id)) {
+            game.quests.active = game.quests.active.filter(q => q.id !== quest.id);
+        }
+        applyQuestRewards(quest.rewards);
+        game.quests.completed.push(quest.id);
+    });
+    updateQuestDisplay();
+    updateShopDisplay();
+    markSaveDirty(true);
+    showToast('All quests completed.', 'success');
+}
+
+function resetAllQuests() {
+    game.quests.active = [];
+    game.quests.completed = [];
+    const questUnlocks = getQuestUnlockIds();
+    questUnlocks.forEach((unlock) => {
+        delete game.unlocks[unlock];
+    });
+    updateQuestDisplay();
+    updateShopDisplay();
+    markSaveDirty(true);
+    showToast('Quests reset.', 'info');
+}
+
 function updateQuestProgress(type, payload) {
     if (!game.quests.active.length) return;
     const rarityRank = { common: 1, uncommon: 2, rare: 3, epic: 4, legendary: 5 };
     game.quests.active.forEach((quest) => {
         const def = getQuestDef(quest.id);
         if (!def || quest.completed) return;
+        const targetValue = getQuestTargetValue(def);
         if (def.type === 'catch_count' && type === 'catch') {
             quest.progress += 1;
         } else if (def.type === 'sell_count' && type === 'sell') {
@@ -1808,7 +1889,7 @@ function updateQuestProgress(type, payload) {
             quest.value = (quest.value || 0) + (payload.value || 0);
             quest.progress = Math.min(def.target, quest.value);
         }
-        if (quest.progress >= def.target && !quest.completed) {
+        if (quest.progress >= targetValue && !quest.completed) {
             quest.completed = true;
             completeQuest(quest.id);
         }
@@ -1867,6 +1948,7 @@ function updateQuestDisplay() {
     game.quests.active.forEach((quest) => {
         const def = getQuestDef(quest.id);
         if (!def) return;
+        const targetValue = getQuestTargetValue(def);
         const card = document.createElement('div');
         card.className = 'quest-card';
         const title = document.createElement('div');
@@ -1876,10 +1958,11 @@ function updateQuestDisplay() {
         giver.className = 'quest-giver';
         giver.textContent = `From: ${def.giver}`;
         const desc = document.createElement('div');
+        desc.className = 'quest-desc';
         desc.textContent = def.desc;
         const progress = document.createElement('div');
         progress.className = 'quest-progress';
-        progress.textContent = `${Math.min(def.target, quest.progress)} / ${def.target}`;
+        progress.textContent = `${Math.min(targetValue, quest.progress)} / ${targetValue}`;
         const rewards = document.createElement('div');
         rewards.className = 'quest-rewards';
         rewards.textContent = formatQuestRewards(def.rewards);
@@ -1937,15 +2020,20 @@ function updateQuestSidebar() {
     game.quests.active.forEach((quest) => {
         const def = getQuestDef(quest.id);
         if (!def) return;
+        const targetValue = getQuestTargetValue(def);
         const card = document.createElement('div');
         card.className = 'quest-card';
         const title = document.createElement('div');
         title.className = 'quest-title';
         title.textContent = def.title;
+        const desc = document.createElement('div');
+        desc.className = 'quest-desc';
+        desc.textContent = def.desc;
         const progress = document.createElement('div');
         progress.className = 'quest-progress';
-        progress.textContent = `${Math.min(def.target, quest.progress)} / ${def.target}`;
+        progress.textContent = `${Math.min(targetValue, quest.progress)} / ${targetValue}`;
         card.appendChild(title);
+        card.appendChild(desc);
         card.appendChild(progress);
         sidebarList.appendChild(card);
     });
@@ -2808,6 +2896,13 @@ function setupEventListeners() {
     const devFishSelect = document.getElementById('dev-fish-select');
     const devFishWeight = document.getElementById('dev-fish-weight');
     const devFishGive = document.getElementById('dev-fish-give');
+    const devNextCatchSet = document.getElementById('dev-next-catch-set');
+    const devNextCatchClear = document.getElementById('dev-next-catch-clear');
+    const devQuestFinishAll = document.getElementById('dev-quest-finish-all');
+    const devQuestReset = document.getElementById('dev-quest-reset');
+    const devRareFxRare = document.getElementById('dev-rare-fx-rare');
+    const devRareFxEpic = document.getElementById('dev-rare-fx-epic');
+    const devRareFxLegendary = document.getElementById('dev-rare-fx-legendary');
     if (devFishSelect && devFishWeight && devFishGive) {
         Object.keys(FISH_TYPES).forEach(rarity => {
             FISH_TYPES[rarity].forEach(fish => {
@@ -2827,6 +2922,46 @@ function setupEventListeners() {
                 addToInventory(item);
             }
         });
+    }
+    if (devNextCatchSet && devFishSelect && devFishWeight) {
+        devNextCatchSet.addEventListener('click', () => {
+            if (!game.devMode) {
+                showToast('Enable dev mode first.', 'error');
+                return;
+            }
+            const [rarity, sprite] = devFishSelect.value.split(':');
+            const fishList = FISH_TYPES[rarity] || [];
+            const fish = fishList.find(item => item.sprite === sprite);
+            if (!fish) {
+                showToast('Select a valid fish.', 'error');
+                return;
+            }
+            const weight = Math.max(0.1, parseFloat(devFishWeight.value) || 1);
+            game.fishing.forceNextCatch = { rarity, sprite, weight };
+            showToast(`Next catch set: ${fish.name} (${weight}kg)`, 'success');
+        });
+    }
+    if (devNextCatchClear) {
+        devNextCatchClear.addEventListener('click', () => {
+            game.fishing.forceNextCatch = null;
+            showToast('Next catch cleared.', 'info');
+        });
+    }
+
+    if (devQuestFinishAll) {
+        devQuestFinishAll.addEventListener('click', () => completeAllQuests());
+    }
+    if (devQuestReset) {
+        devQuestReset.addEventListener('click', () => resetAllQuests());
+    }
+    if (devRareFxRare) {
+        devRareFxRare.addEventListener('click', () => triggerRareCatchEffect('rare'));
+    }
+    if (devRareFxEpic) {
+        devRareFxEpic.addEventListener('click', () => triggerRareCatchEffect('epic'));
+    }
+    if (devRareFxLegendary) {
+        devRareFxLegendary.addEventListener('click', () => triggerRareCatchEffect('legendary'));
     }
     
     // Teleport buttons
@@ -3212,14 +3347,33 @@ function startFishing() {
     }
 
     const rodStats = getRodStats(getEquippedRod());
-    const pendingRarity = getRandomRarity(rodStats);
-    const fishList = FISH_TYPES[pendingRarity];
-    const pendingFish = fishList[Math.floor(Math.random() * fishList.length)];
+    let pendingRarity = null;
+    let pendingFish = null;
+    let forcedWeight = null;
+    if (game.fishing.forceNextCatch) {
+        const forced = game.fishing.forceNextCatch;
+        const forcedList = FISH_TYPES[forced.rarity] || [];
+        const match = forcedList.find(item => item.sprite === forced.sprite);
+        if (match) {
+            pendingRarity = forced.rarity;
+            pendingFish = match;
+            forcedWeight = forced.weight;
+        }
+        game.fishing.forceNextCatch = null;
+    }
+    if (!pendingRarity || !pendingFish) {
+        pendingRarity = getRandomRarity(rodStats);
+        const fishList = FISH_TYPES[pendingRarity];
+        pendingFish = fishList[Math.floor(Math.random() * fishList.length)];
+    }
     game.fishing.pendingRarity = pendingRarity;
     game.fishing.pendingRarityChance = getRarityWeights(rodStats)[pendingRarity] * 100;
     game.fishing.difficultyScale = getRarityDifficulty(pendingRarity);
     game.fishing.rodStats = rodStats;
     game.fishing.pendingFish = pendingFish;
+    if (forcedWeight) {
+        game.fishing.pendingFish = { ...pendingFish, forcedWeight };
+    }
     game.fishing.stage = 1;
     game.fishing.stagesTotal = FISHING_STAGE_ORDER.length;
     game.fishing.stageType = FISHING_STAGE_ORDER[0];
@@ -3266,6 +3420,14 @@ function getRarityDifficulty(rarity) {
 function setupFishingStage() {
     const rodStats = game.fishing.rodStats || getRodStats(getEquippedRod());
     const timeMultiplier = rodStats.timeMultiplier || 1;
+    if (game.fishing.stageType === 'track' && hasActiveBuff('skip_stage1')) {
+        advanceFishingStage();
+        return;
+    }
+    if (game.fishing.stageType === 'timing' && hasActiveBuff('skip_stage2')) {
+        endFishing(true);
+        return;
+    }
     if (game.fishing.stageType === 'track') {
         game.fishing.stageBaseTime = 26;
     } else {
@@ -3294,12 +3456,21 @@ function setupFishingStage() {
         game.fishing.targetHitsRemaining = 6;
     } else if (game.fishing.stageType === 'timing') {
         game.fishing.timingHits = 0;
-        game.fishing.timingHitsNeeded = 2;
+        const timingEase = getTimingEase(rodStats);
+        const baseHits = 2;
+        const hitsReduction = Math.floor(timingEase / 8);
+        const equippedRod = getEquippedRod();
+        const mythicBonus = equippedRod && equippedRod.sprite === 'rodMythic';
+        game.fishing.timingHitsNeeded = mythicBonus ? 1 : Math.max(1, baseHits - hitsReduction);
         game.fishing.timingMarkerPos = 50;
         game.fishing.timingMarkerDir = Math.random() < 0.5 ? -1 : 1;
-        game.fishing.timingTargetWidth = Math.max(12, 24 - (game.fishing.difficultyScale - 0.9) * 10);
+        const baseWidth = Math.max(12, 24 - (game.fishing.difficultyScale - 0.9) * 10);
+        const mythicWidthBoost = mythicBonus ? 10 : 0;
+        game.fishing.timingTargetWidth = Math.max(12, baseWidth + timingEase + mythicWidthBoost);
         game.fishing.timingTargetCenter = 20 + Math.random() * 60;
-        game.fishing.timingSpeed = 1.2 * game.fishing.difficultyScale;
+        const baseSpeed = 1.2 * game.fishing.difficultyScale;
+        const speedScale = 1 - Math.min(0.35, timingEase / 30);
+        game.fishing.timingSpeed = Math.max(0.6, baseSpeed * speedScale);
     }
     if (game.tutorial.active && game.tutorial.mode === 'guided' &&
         (game.tutorial.currentStepId === 'track' || game.tutorial.currentStepId === 'timing')) {
@@ -3551,7 +3722,7 @@ function endFishing(success) {
             const fishList = FISH_TYPES[rarity];
             return fishList[Math.floor(Math.random() * fishList.length)];
         })();
-        const weight = generateFishWeight(fish, rarity);
+        const weight = fish.forcedWeight || generateFishWeight(fish, rarity);
         const item = createWeightedFish(fish, rarity, weight);
         addToInventory(item);
         registerCatch(item);
@@ -3592,9 +3763,16 @@ function generateFishWeight(fish, rarity) {
 
 function createWeightedFish(fish, rarity, weight) {
     const maxWeight = getFishWeightRange(fish, rarity)[1];
-    const weightMultiplier = 0.6 + (weight / maxWeight);
+    const ratio = Math.min(1, Math.max(0, weight / maxWeight));
+    const weightMultiplier = 0.5 + (0.8 * ratio) + (2.2 * Math.pow(ratio, 2));
     const price = Math.max(1, Math.round(fish.price * weightMultiplier));
     return { ...fish, weight, price, rarity };
+}
+
+function getTimingEase(rodStats) {
+    const widthBonus = Math.max(0, rodStats.targetWidthBonus || 0) * 0.5;
+    const speedBonus = Math.max(0, (1 - (rodStats.indicatorSpeedMultiplier || 1)) * 10);
+    return widthBonus + speedBonus;
 }
 
 function getXpNeeded(level) {
@@ -3724,6 +3902,10 @@ function applyBuff(buff) {
         expiresAt: now + buff.durationMs
     });
     recalculateBuffs();
+}
+
+function hasActiveBuff(name) {
+    return game.activeBuffs.some(buff => buff.name === name);
 }
 
 function recalculateBuffs() {
@@ -3891,6 +4073,34 @@ function useConsumable(item) {
             speedMultiplier: 1.25
         });
         showToast('Swift Potion active: faster movement.', 'success');
+    } else if (item.sprite === 'charmStage1') {
+        if (hasActiveBuff('skip_stage2')) {
+            showToast('Cannot stack both skip charms.', 'error');
+            return;
+        }
+        if (hasActiveBuff('skip_stage1')) {
+            showToast('Reel skip is already active.', 'info');
+            return;
+        }
+        applyBuff({
+            name: 'skip_stage1',
+            durationMs: 60000
+        });
+        showToast('Reel skip active: Stage 1 will be skipped.', 'success');
+    } else if (item.sprite === 'charmStage2') {
+        if (hasActiveBuff('skip_stage1')) {
+            showToast('Cannot stack both skip charms.', 'error');
+            return;
+        }
+        if (hasActiveBuff('skip_stage2')) {
+            showToast('Timing skip is already active.', 'info');
+            return;
+        }
+        applyBuff({
+            name: 'skip_stage2',
+            durationMs: 60000
+        });
+        showToast('Timing skip active: Stage 2 will be skipped.', 'success');
     } else {
         showToast('This consumable has no effect yet.', 'info');
         return;
@@ -4262,6 +4472,12 @@ function showCatchPopup(item, rarityChance) {
         rarity.textContent = item.rarity;
     }
 
+    const rareQuality = ['rare', 'epic', 'legendary'].includes(item.rarity);
+    panel.classList.toggle('rare-catch', rareQuality);
+    if (rareQuality) {
+        triggerRareCatchEffect(item.rarity);
+    }
+
     panel.classList.remove('hidden');
     if (catchPopupTimeout) {
         clearTimeout(catchPopupTimeout);
@@ -4269,6 +4485,18 @@ function showCatchPopup(item, rarityChance) {
     catchPopupTimeout = setTimeout(() => {
         hideCatchPopup();
     }, 4500);
+}
+
+function triggerRareCatchEffect(rarity) {
+    const overlay = document.getElementById('ui-overlay');
+    if (!overlay) return;
+    const effect = document.createElement('div');
+    effect.className = 'rare-catch-effect';
+    effect.dataset.rarity = rarity || '';
+    overlay.appendChild(effect);
+    setTimeout(() => {
+        effect.remove();
+    }, 1200);
 }
 
 // Shop System
@@ -4371,7 +4599,7 @@ function updateShopDisplay() {
     buySection.innerHTML = '';
     sellSection.innerHTML = '';
 
-    const buyItems = applyShopSort(SHOP_ITEMS, false);
+    const buyItems = applyShopSort(SHOP_ITEMS.filter(item => !item.questOnly), false);
     const sellItems = applyShopSort(
         game.inventory.filter(item => item.price && item.sprite && item.type !== 'rod' && !game.hotbar.includes(item)),
         true
@@ -4650,6 +4878,7 @@ function showShopkeeperMenu() {
     if (panel) {
         panel.classList.remove('hidden');
         panel.classList.add('dialogue-menu');
+        panel.style.pointerEvents = 'auto';
         if (!game.dialogue.fixedPos) {
             const offsetX = 60;
             const offsetY = -20;
@@ -4671,8 +4900,10 @@ function showShopkeeperMenu() {
     }
     if (content) {
         content.innerHTML = '';
+        content.style.pointerEvents = 'auto';
         const list = document.createElement('div');
         list.className = 'dialogue-options';
+        list.style.pointerEvents = 'auto';
         content.appendChild(list);
 
         const makeOption = (label, action) => {
@@ -4680,13 +4911,16 @@ function showShopkeeperMenu() {
             btn.type = 'button';
             btn.className = 'dialogue-option';
             btn.textContent = label;
-            btn.onclick = action;
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                action();
+            });
             list.appendChild(btn);
         };
 
         makeOption('1. Sell All', () => {
             closeDialogue();
-            sellAllEligible();
+            sellAllFish({ includeProtected: true, includeHotbar: true, toastLabel: 'fish' });
         });
 
         makeOption('2. Sell Held Item', () => {
@@ -5558,31 +5792,34 @@ function drawShopKeeper() {
     const dist = Math.abs(game.player.x - game.shopKeeper.x);
     if (dist < game.shopKeeper.interactionRange) {
         const pulse = (Math.sin(performance.now() / 300) + 1) / 2;
-        const bubbleRadius = 10 + pulse * 2;
         const bubbleX = shopX + px * 8;
         const bubbleY = shopY - px * 6;
-
-        ctx.save();
-        ctx.fillStyle = 'rgba(17, 35, 46, 0.85)';
-        ctx.beginPath();
-        ctx.arc(bubbleX, bubbleY + 1, bubbleRadius + 3, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-        ctx.strokeStyle = 'rgba(67, 183, 207, 0.8)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(bubbleX, bubbleY, bubbleRadius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = '#1f3a4a';
-        ctx.font = 'bold 12px "Segoe UI", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('E', bubbleX, bubbleY + 1);
-        ctx.restore();
+        drawInteractBubble(ctx, bubbleX, bubbleY, pulse, 'E');
     }
+}
+
+function drawInteractBubble(ctx, x, y, pulse, label) {
+    const bubbleRadius = 10 + pulse * 2;
+    ctx.save();
+    ctx.fillStyle = 'rgba(17, 35, 46, 0.85)';
+    ctx.beginPath();
+    ctx.arc(x, y + 1, bubbleRadius + 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.strokeStyle = 'rgba(67, 183, 207, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, bubbleRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#1f3a4a';
+    ctx.font = 'bold 12px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x, y + 1);
+    ctx.restore();
 }
 
 function drawQuestGivers(ctx, timeSeconds) {
@@ -5591,8 +5828,8 @@ function drawQuestGivers(ctx, timeSeconds) {
         if (giver.id === 'shopkeeper') return;
         const gx = giver.x - game.camera.x;
         const gy = giver.y - game.camera.y;
-        const pulse = (Math.sin(timeSeconds * 3 + gx * 0.01) + 1) / 2;
         const bob = Math.sin(timeSeconds * 2 + gx * 0.02) * 2;
+        const dist = Math.hypot(game.player.x - giver.x, game.player.y - giver.y);
 
         drawQuestNpcSprite(ctx, giver, gx, gy + bob);
 
@@ -5602,19 +5839,10 @@ function drawQuestGivers(ctx, timeSeconds) {
         ctx.ellipse(gx + 12, gy + 48, 12, 4, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = '#ff9b2f';
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(gx + 12, gy + 12 + bob, 12 + pulse * 2, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = '#1f2d3d';
-        ctx.font = 'bold 12px "Fredoka", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('!', gx + 12, gy + 12 + bob);
+        if (dist < 110) {
+            const pulse = (Math.sin(timeSeconds * 3 + gx * 0.01) + 1) / 2;
+            drawInteractBubble(ctx, gx + 12, gy + 12 + bob, pulse, 'E');
+        }
 
         ctx.fillStyle = 'rgba(10, 10, 10, 0.6)';
         ctx.fillRect(gx - 20, gy + 30 + bob, 64, 18);
@@ -6125,7 +6353,8 @@ function drawCloud(x, y) {
 // Game Loop
 function gameLoop() {
     const now = performance.now();
-    const dt = game.lastFrameTime ? (now - game.lastFrameTime) / 1000 : 0.016;
+    const rawDt = game.lastFrameTime ? (now - game.lastFrameTime) / 1000 : 0.016;
+    const dt = Math.min(0.05, rawDt);
     game.lastFrameTime = now;
     game.frameDelta = dt;
     const fps = dt > 0 ? 1 / dt : 0;

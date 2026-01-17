@@ -618,6 +618,11 @@ body {
     color: #2d45a8;
 }
 
+.quest-desc {
+    font-size: 12px;
+    color: #4c5a9a;
+}
+
 .quest-rewards {
     font-size: 11px;
     color: #5060a3;
@@ -678,6 +683,9 @@ body {
     grid-template-columns: repeat(5, 1fr);
     gap: 10px;
     margin: 20px 0;
+    max-height: 360px;
+    overflow-y: auto;
+    padding-right: 6px;
 }
 
 .inventory-item {
@@ -1262,6 +1270,8 @@ body {
     background: linear-gradient(160deg, rgba(255, 255, 255, 0.97), rgba(229, 246, 255, 0.96));
     border: 2px solid rgba(22, 86, 110, 0.2);
     box-shadow: 0 22px 60px rgba(9, 33, 45, 0.35);
+    pointer-events: all;
+    z-index: 40;
 }
 
 #dialogue-panel.dialogue-menu {
@@ -1272,6 +1282,8 @@ body {
     border: none;
     box-shadow: none;
     backdrop-filter: none;
+    pointer-events: all;
+    z-index: 40;
 }
 
 #dialogue-panel.dialogue-menu .dialogue-header,
@@ -1304,6 +1316,7 @@ body {
     padding: 6px 10px;
     border-radius: 4px;
     cursor: pointer;
+    pointer-events: auto;
 }
 
 .dialogue-option:hover {
@@ -1316,6 +1329,30 @@ body {
     transform: translate(-50%, -50%);
     min-width: 360px;
     max-width: 460px;
+}
+
+#catch-popup.rare-catch {
+    border: 2px solid rgba(255, 203, 94, 0.9);
+    box-shadow: 0 0 30px rgba(255, 203, 94, 0.6), 0 20px 50px rgba(10, 20, 30, 0.35);
+}
+
+.rare-catch-effect {
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.35), transparent 40%),
+        linear-gradient(120deg, rgba(255, 0, 92, 0.28), rgba(255, 200, 0, 0.28), rgba(0, 200, 255, 0.28), rgba(161, 0, 255, 0.28));
+    mix-blend-mode: screen;
+    opacity: 0;
+    pointer-events: none;
+    animation: rareRainbow 1.2s ease-out;
+    z-index: 24;
+}
+
+@keyframes rareRainbow {
+    0% { opacity: 0; transform: scale(1); }
+    35% { opacity: 0.75; transform: scale(1.03); }
+    100% { opacity: 0; transform: scale(1.06); }
 }
 
 .mp-tabs {
