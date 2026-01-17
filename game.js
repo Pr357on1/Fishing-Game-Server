@@ -90,7 +90,8 @@ const game = {
     dialogue: {
         active: false,
         currentDialogue: [],
-        index: 0
+        index: 0,
+        fixedPos: null
     },
     locations: {
         shop: { x: 200, y: GROUND_LEVEL - 50 },
@@ -3567,6 +3568,7 @@ function teleportToLocation(locationName) {
 // Dialogue System
 function startDialogue() {
     game.dialogue.active = true;
+    game.dialogue.fixedPos = null;
     showShopkeeperMenu();
 }
 
@@ -3579,6 +3581,21 @@ function showShopkeeperMenu() {
     if (panel) {
         panel.classList.remove('hidden');
         panel.classList.add('dialogue-menu');
+        if (!game.dialogue.fixedPos) {
+            const offsetX = 60;
+            const offsetY = -20;
+            const screenX = game.shopKeeper.x - game.camera.x + offsetX;
+            const screenY = game.shopKeeper.y - game.camera.y + offsetY;
+            const maxX = game.canvas.width - 240;
+            const maxY = game.canvas.height - 180;
+            game.dialogue.fixedPos = {
+                x: Math.max(20, Math.min(maxX, screenX)),
+                y: Math.max(20, Math.min(maxY, screenY))
+            };
+        }
+        panel.style.left = `${game.dialogue.fixedPos.x}px`;
+        panel.style.top = `${game.dialogue.fixedPos.y}px`;
+        panel.style.transform = 'translate(0, 0)';
     }
     if (nextBtn) {
         nextBtn.classList.add('hidden');
@@ -3626,6 +3643,7 @@ function nextDialogue() {
 
 function closeDialogue() {
     game.dialogue.active = false;
+    game.dialogue.fixedPos = null;
     const panel = document.getElementById('dialogue-panel');
     if (panel) {
         panel.classList.remove('dialogue-menu');
