@@ -398,6 +398,9 @@ function initStartScreen() {
         if (playerSetup) playerSetup.classList.remove('hidden');
         init();
     });
+    if (loadingScreen) {
+        requestAnimationFrame(() => loadingScreen.classList.add('ready'));
+    }
 }
 
 // Initialize Game
@@ -2137,6 +2140,18 @@ function updatePlayer() {
         const playerLeft = game.player.x;
         const playerRight = game.player.x + game.player.width;
         const groundY = groundSurfaceAt(game.player.x + game.player.width / 2);
+
+        if (game.player.swimming) {
+            const dock = game.island.dock;
+            const nearSurface = playerBottom <= waterLevel + 2;
+            const inDockX = playerRight > dock.x && playerLeft < dock.x + dock.width;
+            if (nearSurface && inDockX) {
+                game.player.y = dock.y - game.player.height;
+                game.player.vy = 0;
+                game.player.swimming = false;
+                game.player.onGround = true;
+            }
+        }
         
         if (!game.player.swimming && onLand) {
             // Check main ground - ensure player is always on or above ground

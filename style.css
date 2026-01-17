@@ -756,13 +756,27 @@ body {
     left: 50%;
     transform: translate(-50%, -50%);
     min-width: 400px;
+    max-height: 82vh;
+    overflow-y: auto;
 }
 
 .dev-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
+    gap: 10px 12px;
     margin: 12px 0;
+}
+
+.dev-row label {
+    min-width: 120px;
+    font-weight: 700;
+    color: #2d45a8;
+}
+
+.dev-row button {
+    flex: 1 1 120px;
+    min-height: 42px;
 }
 
 .dev-row input[type="number"],
@@ -771,10 +785,12 @@ body {
     border: 2px solid rgba(102, 126, 234, 0.3);
     border-radius: 8px;
     font-size: 14px;
+    flex: 1 1 160px;
 }
 
 .dev-row input[type="range"] {
-    width: 180px;
+    width: 100%;
+    min-width: 200px;
 }
 
 #dev-input {
@@ -1765,6 +1781,12 @@ select {
     border-radius: 999px;
 }
 
+#dev-panel {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
 /* Loading screen */
 .loading-screen {
     position: absolute;
@@ -1774,6 +1796,10 @@ select {
     background:
         linear-gradient(180deg, rgba(92, 45, 213, 0.95) 0%, rgba(77, 110, 242, 0.95) 30%, rgba(87, 216, 231, 0.95) 65%, rgba(61, 140, 245, 0.95) 100%);
     z-index: 20;
+}
+
+.loading-screen.ready .loading-spinner {
+    display: none;
 }
 
 .loading-card {
