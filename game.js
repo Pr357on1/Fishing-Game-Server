@@ -138,7 +138,9 @@ const game = {
         timingMarkerDir: 1,
         timingTargetCenter: 50,
         timingTargetWidth: 18,
-        timingSpeed: 1
+        timingSpeed: 1,
+        pendingFish: null,
+        preCatchTimer: null
     },
     weather: {
         type: 'sunny',
@@ -341,6 +343,21 @@ const DEFAULT_ROD_STATS = {
     fishSpeedMultiplier: 1,
     timeMultiplier: 1,
     luck: 0
+};
+
+const FISH_RENDER_BASE_SIZE = 24;
+
+const FISH_SIZE_MULTIPLIERS = {
+    tuna: 1.3,
+    salmon: 1.0,
+    bass: 0.85,
+    pufferfish: 0.6,
+    swordfish: 1.6,
+    shark: 1.9,
+    stingray: 1.4,
+    goldenFish: 0.9,
+    rainbowTrout: 0.95,
+    leviathan: 2.4
 };
 
 function drawRoundedRect(ctx, x, y, w, h, r) {
@@ -2216,6 +2233,18 @@ function setupEventListeners() {
             devSpeedValue.textContent = PLAYER_SPEED.toFixed(1);
         });
     }
+    const devLuckRange = document.getElementById('dev-luck-range');
+    const devLuckValue = document.getElementById('dev-luck-value');
+    if (devLuckRange && devLuckValue) {
+        const baseLuck = Math.round((game.buffs.luckBonus || 0) * 100);
+        devLuckRange.value = baseLuck;
+        devLuckValue.textContent = `${baseLuck}%`;
+        devLuckRange.addEventListener('input', () => {
+            const value = parseFloat(devLuckRange.value) || 0;
+            game.buffs.luckBonus = value / 100;
+            devLuckValue.textContent = `${value}%`;
+        });
+    }
 
     const devBroadcast = document.getElementById('dev-broadcast');
     const devBroadcastSend = document.getElementById('dev-broadcast-send');
@@ -2681,37 +2710,53 @@ function startFishing() {
         return;
     }
 
-    game.fishing.active = true;
     const rodStats = getRodStats(getEquippedRod());
     const pendingRarity = getRandomRarity(rodStats);
+    const fishList = FISH_TYPES[pendingRarity];
+    const pendingFish = fishList[Math.floor(Math.random() * fishList.length)];
     game.fishing.pendingRarity = pendingRarity;
     game.fishing.pendingRarityChance = getRarityWeights(rodStats)[pendingRarity] * 100;
     game.fishing.difficultyScale = getRarityDifficulty(pendingRarity);
     game.fishing.rodStats = rodStats;
+    game.fishing.pendingFish = pendingFish;
     game.fishing.stage = 1;
     game.fishing.stagesTotal = FISHING_STAGE_ORDER.length;
     game.fishing.stageType = FISHING_STAGE_ORDER[0];
-    game.fishing.castActive = true;
-    game.fishing.castX = castX;
-    game.fishing.castY = game.player.y + 60;
-    game.fishing.castInWater = true;
-    setupFishingStage();
-    
-    document.getElementById('fishing-minigame').classList.remove('hidden');
-    updateFishingDisplay();
-    game.tutorial.flags.fishingStarted = true;
+    const isRareCatch = ['rare', 'epic', 'legendary'].includes(pendingRarity);
+    if (isRareCatch) {
+        showRareCatchBanner(pendingFish?.name || 'Rare Fish', pendingRarity);
+    }
+    const startMinigame = () => {
+        game.fishing.active = true;
+        game.fishing.castActive = true;
+        game.fishing.castX = castX;
+        game.fishing.castY = game.player.y + 60;
+        game.fishing.castInWater = true;
+        setupFishingStage();
+        document.getElementById('fishing-minigame').classList.remove('hidden');
+        updateFishingDisplay();
+        game.tutorial.flags.fishingStarted = true;
+    };
+    if (isRareCatch) {
+        if (game.fishing.preCatchTimer) {
+            clearTimeout(game.fishing.preCatchTimer);
+        }
+        game.fishing.preCatchTimer = setTimeout(startMinigame, 900);
+    } else {
+        startMinigame();
+    }
 }
 
 function getRarityDifficulty(rarity) {
     switch (rarity) {
         case 'legendary':
-            return 1.2;
+            return 1.55;
         case 'epic':
-            return 1.1;
+            return 1.35;
         case 'rare':
-            return 1.0;
+            return 1.2;
         case 'uncommon':
-            return 0.95;
+            return 1.0;
         default:
             return 0.9;
     }
@@ -2736,7 +2781,8 @@ function setupFishingStage() {
         game.fishing.targetPos = 50 + (Math.random() - 0.5) * 120;
         game.fishing.targetPos = Math.max(20, Math.min(80, game.fishing.targetPos));
         game.fishing.indicatorSpeed = (2.2 + Math.random() * 1.2) * rodStats.indicatorSpeedMultiplier;
-        game.fishing.targetWidth = 32 + rodStats.targetWidthBonus;
+        const difficultyNerf = Math.max(0, (game.fishing.difficultyScale - 0.9) * 10);
+        game.fishing.targetWidth = Math.max(18, 34 + rodStats.targetWidthBonus - difficultyNerf);
         game.fishing.progressGain = 0.006 * rodStats.progressGainMultiplier;
         game.fishing.progressLoss = 0.003 * rodStats.progressLossMultiplier;
         game.fishing.fishSpeedMultiplier = rodStats.fishSpeedMultiplier * game.fishing.difficultyScale;
@@ -3000,8 +3046,10 @@ function endFishing(success) {
         const rodStats = game.fishing.rodStats;
         const rarity = game.fishing.pendingRarity || getRandomRarity(rodStats);
         const rarityChance = game.fishing.pendingRarityChance || (getRarityWeights(rodStats)[rarity] * 100);
-        const fishList = FISH_TYPES[rarity];
-        const fish = fishList[Math.floor(Math.random() * fishList.length)];
+        const fish = game.fishing.pendingFish || (() => {
+            const fishList = FISH_TYPES[rarity];
+            return fishList[Math.floor(Math.random() * fishList.length)];
+        })();
         const weight = generateFishWeight(fish, rarity);
         const item = createWeightedFish(fish, rarity, weight);
         addToInventory(item);
@@ -3009,11 +3057,17 @@ function endFishing(success) {
         game.tutorial.flags.fishCaught = true;
         showCatchPopup(item, rarityChance);
     } else {
-        showToast('Missed! Try again.', 'error');
+        const missed = game.fishing.pendingFish;
+        if (missed && missed.name) {
+            showToast(`Missed: ${missed.name}`, 'error');
+        } else {
+            showToast('Missed! Try again.', 'error');
+        }
     }
     game.fishing.rodStats = null;
     game.fishing.pendingRarity = null;
     game.fishing.pendingRarityChance = 0;
+    game.fishing.pendingFish = null;
 }
 
 function getFishWeightRange(fish, rarity) {
@@ -3025,18 +3079,12 @@ function getFishWeightRange(fish, rarity) {
 
 function generateFishWeight(fish, rarity) {
     const [min, max] = getFishWeightRange(fish, rarity);
-    const baseMin = Math.max(1, min);
-    const baseMax = Math.min(10, max);
-    const hugeChance = 0.015;
-    let weight;
-    if (max >= 100 && Math.random() < hugeChance) {
-        const hugeMin = Math.max(100, min);
-        const roll = Math.random();
-        weight = hugeMin + (max - hugeMin) * Math.pow(roll, 0.35);
-    } else {
-        const roll = Math.random();
-        weight = baseMin + (baseMax - baseMin) * Math.pow(roll, 0.8);
-    }
+    const spread = Math.max(0.1, max - min);
+    let exponent = 0.85;
+    if (max >= 200) exponent = 0.65;
+    if (max >= 800) exponent = 0.55;
+    const roll = Math.random();
+    const weight = min + spread * Math.pow(roll, exponent);
     return Math.round(weight * 10) / 10;
 }
 
@@ -3047,13 +3095,16 @@ function createWeightedFish(fish, rarity, weight) {
     return { ...fish, weight, price, rarity };
 }
 
-function getFishDisplaySize(item, baseSize) {
+function getFishDisplaySize(item, baseSize = FISH_RENDER_BASE_SIZE) {
     if (!item || !item.weight) return baseSize;
-    const maxWeight = getFishWeightRange(item, item.rarity)[1];
-    const safeWeight = Math.max(0, item.weight);
-    const normalized = Math.log10(1 + safeWeight) / Math.log10(1 + maxWeight);
-    const scale = 0.3 + Math.min(10, normalized * 10);
-    return Math.round(baseSize * scale);
+    const [minWeight, maxWeight] = getFishWeightRange(item, item.rarity);
+    const safeWeight = Math.max(0.1, item.weight);
+    const normalized = (safeWeight - minWeight) / Math.max(0.1, maxWeight - minWeight);
+    const clamped = Math.max(0, Math.min(1.4, normalized));
+    const speciesScale = FISH_SIZE_MULTIPLIERS[item.sprite] || 1;
+    const curve = Math.pow(clamped, 0.7);
+    const scale = 0.5 + curve * 1.6;
+    return Math.round(baseSize * scale * speciesScale);
 }
 
 function getFishImage(spriteType) {
@@ -3381,7 +3432,7 @@ function getRarityColor(rarity) {
 }
 
 function getRarityWeights(rodStats) {
-    const luck = rodStats.luck || 0;
+    const luck = (rodStats.luck || 0) + (game.buffs.luckBonus || 0);
     let common = 0.62 - luck * 0.5;
     let uncommon = 0.25 - luck * 0.2;
     let rare = 0.1 + luck * 0.3;
@@ -3558,6 +3609,19 @@ function openShop() {
     }
     updateShopDisplay();
     game.tutorial.flags.shopOpened = true;
+}
+
+function showRareCatchBanner(name, rarity) {
+    const banner = document.getElementById('rare-catch-banner');
+    const title = document.getElementById('rare-catch-title');
+    const label = document.getElementById('rare-catch-name');
+    if (!banner || !title || !label) return;
+    title.textContent = rarity ? `${rarity.toUpperCase()} FISH!` : 'Rare Catch!';
+    label.textContent = name || 'Mystery Fish';
+    banner.classList.remove('hidden');
+    setTimeout(() => {
+        banner.classList.add('hidden');
+    }, 1100);
 }
 
 function initShopUI() {
@@ -4399,7 +4463,7 @@ function drawRemotePlayers(timeSeconds) {
                 weight: player.heldWeight || 0,
                 rarity: player.heldRarity || 'common'
             };
-            const fishSize = getFishDisplaySize(fishItem, 18);
+            const fishSize = getFishDisplaySize(fishItem, FISH_RENDER_BASE_SIZE);
             const fishCenterX = bodyX + bodyWidth + 8;
             const fishCenterY = bodyY + 6;
             drawFishSprite(ctx, fishItem.sprite, fishCenterX - fishSize / 2, fishCenterY - fishSize / 2, fishSize);
@@ -5188,7 +5252,7 @@ function render() {
 
     // Held item (fish)
     if (heldItem && heldItem.sprite && (!heldItem.type || heldItem.type !== 'rod')) {
-        const fishSize = getFishDisplaySize(heldItem, 20);
+        const fishSize = getFishDisplaySize(heldItem, FISH_RENDER_BASE_SIZE);
         const fishCenterX = handX + 16;
         const fishCenterY = handY + 4;
         drawFishSprite(ctx, heldItem.sprite, fishCenterX - fishSize / 2, fishCenterY - fishSize / 2, fishSize);
@@ -5215,7 +5279,7 @@ function render() {
         const bobX = game.fishing.castX - game.camera.x;
         const bobY = game.fishing.castY - game.camera.y;
         const lift = Math.max(0, 1 - game.fishing.catchDisplay.timer) * 50;
-        const catchSize = getFishDisplaySize(game.fishing.catchDisplay.item, 28);
+        const catchSize = getFishDisplaySize(game.fishing.catchDisplay.item, FISH_RENDER_BASE_SIZE);
         const catchCenterX = bobX + 4;
         const catchCenterY = bobY - 16 - lift;
         drawFishSprite(ctx, game.fishing.catchDisplay.item.sprite, catchCenterX - catchSize / 2, catchCenterY - catchSize / 2, catchSize);

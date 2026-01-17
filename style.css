@@ -175,6 +175,40 @@ body {
     border-color: transparent transparent rgba(255, 255, 255, 0.98) transparent;
 }
 
+.rare-catch-banner {
+    position: absolute;
+    top: 18%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10, 10, 20, 0.85);
+    color: #ffffff;
+    padding: 14px 22px;
+    border-radius: 18px;
+    text-align: center;
+    font-weight: 800;
+    letter-spacing: 1px;
+    box-shadow: 0 16px 32px rgba(6, 12, 20, 0.4);
+    z-index: 25;
+    animation: rarePulse 1.2s ease-in-out;
+}
+
+.rare-catch-title {
+    text-transform: uppercase;
+    font-size: 14px;
+    color: #ffd36a;
+}
+
+.rare-catch-name {
+    font-size: 20px;
+    margin-top: 4px;
+}
+
+@keyframes rarePulse {
+    0% { transform: translateX(-50%) scale(0.9); opacity: 0; }
+    30% { transform: translateX(-50%) scale(1.05); opacity: 1; }
+    100% { transform: translateX(-50%) scale(1); opacity: 0.9; }
+}
+
 .players-list {
     display: grid;
     gap: 12px;
