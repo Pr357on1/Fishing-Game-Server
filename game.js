@@ -56,6 +56,8 @@ const game = {
     keybinds: {},
     keybindCapture: null,
     inventory: [],
+    inventoryMode: 'normal',
+    inventorySelected: null,
     hotbar: [null, null, null, null, null],
     selectedSlot: 0,
     money: 100,
@@ -545,6 +547,9 @@ function init() {
 
     // Keybinds setup
     initKeybinds();
+
+    // Inventory actions
+    initInventoryActions();
     
     // Initialize hotbar selection
     selectHotbarSlot(0);
@@ -670,6 +675,7 @@ function refreshSellSettingsUI() {
 function isSellProtected(item) {
     if (!item || !item.weight) return false;
     const settings = game.sellSettings || DEFAULT_SELL_SETTINGS;
+    if (item.favorite) return true;
     if (settings.keepRarities[item.rarity]) return true;
     if (settings.keepBigEnabled && item.weight >= settings.keepBigKg) return true;
     if (settings.keepSmallEnabled && item.weight <= settings.keepSmallKg) return true;
@@ -1980,6 +1986,9 @@ function setupEventListeners() {
             if (panel) {
                 panel.classList.add('hidden');
             }
+            if (panelId === 'inventory-panel') {
+                setInventoryMode('normal');
+            }
         });
     });
     
@@ -2237,6 +2246,9 @@ function closeAllPanels(exceptId) {
             el.classList.add('hidden');
         }
     });
+    if (exceptId !== 'inventory-panel') {
+        setInventoryMode('normal');
+    }
     if (exceptId !== 'keybinds-panel' && game.keybindCapture) {
         game.keybindCapture = null;
         renderKeybinds();
@@ -3080,6 +3092,12 @@ function updateInventoryDisplay() {
     game.inventory.forEach((item, index) => {
         const div = document.createElement('div');
         div.className = 'inventory-item';
+        if (item.favorite) {
+            div.classList.add('favorite');
+        }
+        if (game.inventoryMode === 'sell' && game.inventorySelected === item) {
+            div.classList.add('selected');
+        }
         if (item.rarity) {
             div.style.background = getRarityColor(item.rarity);
         }
@@ -3109,10 +3127,20 @@ function updateInventoryDisplay() {
         div.appendChild(countDiv);
         
         div.addEventListener('click', () => {
-            // Move to hotbar if clicked
+            if (game.inventoryMode === 'sell') {
+                game.inventorySelected = item;
+                updateInventoryDisplay();
+                return;
+            }
             const slot = game.selectedSlot;
             game.hotbar[slot] = item;
             updateHotbar();
+            markSaveDirty();
+        });
+        div.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            item.favorite = !item.favorite;
+            updateInventoryDisplay();
             markSaveDirty();
         });
         grid.appendChild(div);
@@ -3190,6 +3218,47 @@ function getRodStats(rod) {
         targetWidthBonus: base.targetWidthBonus + (buffs.targetWidthBonus || 0),
         timeMultiplier: base.timeMultiplier * (buffs.timeMultiplier || 1)
     };
+}
+
+function initInventoryActions() {
+    const sellBtn = document.getElementById('inventory-sell');
+    const cancelBtn = document.getElementById('inventory-cancel');
+    if (sellBtn) {
+        sellBtn.addEventListener('click', () => {
+            if (game.inventoryMode !== 'sell') return;
+            if (!game.inventorySelected) {
+                showToast('Select a fish to sell.', 'info');
+                return;
+            }
+            sellItem(game.inventorySelected);
+            game.inventorySelected = null;
+            updateInventoryDisplay();
+        });
+    }
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+            setInventoryMode('normal');
+        });
+    }
+}
+
+function setInventoryMode(mode) {
+    game.inventoryMode = mode;
+    if (mode !== 'sell') {
+        game.inventorySelected = null;
+    }
+    const actions = document.getElementById('inventory-actions');
+    if (actions) {
+        actions.classList.toggle('hidden', mode !== 'sell');
+    }
+    updateInventoryDisplay();
+}
+
+function openInventoryForSell() {
+    closeAllPanels('inventory-panel');
+    setInventoryMode('sell');
+    const panel = document.getElementById('inventory-panel');
+    if (panel) panel.classList.remove('hidden');
 }
 
 function getRodAuraClass(rod) {
@@ -3285,7 +3354,11 @@ function showCatchPopup(item, rarityChance) {
 
 // Shop System
 function openShop() {
-    togglePanel('shop-panel');
+    closeAllPanels('shop-panel');
+    const panel = document.getElementById('shop-panel');
+    if (panel) {
+        panel.classList.remove('hidden');
+    }
     updateShopDisplay();
 }
 
@@ -3480,53 +3553,100 @@ function teleportToLocation(locationName) {
 }
 
 // Dialogue System
-const SHOPKEEPER_DIALOGUES = [
-    "Welcome to my shop, traveler!",
-    "I buy and sell fish here.",
-    "You can also buy fishing rods and bait.",
-    "Press the shop button in dialogue to browse!",
-    "Good luck with your fishing!"
-];
-
 function startDialogue() {
     game.dialogue.active = true;
-    game.dialogue.currentDialogue = SHOPKEEPER_DIALOGUES;
-    game.dialogue.index = 0;
-    showDialogue();
+    showShopkeeperMenu();
 }
 
-function showDialogue() {
+function showShopkeeperMenu() {
     const panel = document.getElementById('dialogue-panel');
     const content = document.getElementById('dialogue-content');
-    
-    if (game.dialogue.index < game.dialogue.currentDialogue.length) {
-        content.innerHTML = `<p>${game.dialogue.currentDialogue[game.dialogue.index]}</p>`;
-        if (game.dialogue.index === 2) {
-            // Add shop button in dialogue
-            const shopBtn = document.createElement('button');
-            shopBtn.className = 'close-btn';
-            shopBtn.textContent = 'Open Shop';
-            shopBtn.style.marginTop = '10px';
-            shopBtn.onclick = () => {
-                closeDialogue();
-                openShop();
-            };
-            content.appendChild(shopBtn);
-        }
+    const nextBtn = document.getElementById('dialogue-next');
+    closeAllPanels('dialogue-panel');
+
+    if (panel) {
         panel.classList.remove('hidden');
-    } else {
-        closeDialogue();
+        const offsetX = 60;
+        const offsetY = -20;
+        const screenX = game.shopKeeper.x - game.camera.x + offsetX;
+        const screenY = game.shopKeeper.y - game.camera.y + offsetY;
+        const maxX = game.canvas.width - 320;
+        const maxY = game.canvas.height - 240;
+        panel.style.left = `${Math.max(20, Math.min(maxX, screenX))}px`;
+        panel.style.top = `${Math.max(20, Math.min(maxY, screenY))}px`;
+        panel.style.transform = 'translate(0, 0)';
+    }
+    if (nextBtn) {
+        nextBtn.classList.add('hidden');
+    }
+    if (content) {
+        content.innerHTML = '';
+        const title = document.createElement('div');
+        title.textContent = 'What would you like to do?';
+        title.style.fontWeight = '700';
+        title.style.marginBottom = '12px';
+        content.appendChild(title);
+
+        const sellAllBtn = document.createElement('button');
+        sellAllBtn.className = 'close-btn';
+        sellAllBtn.textContent = 'Sell All Eligible';
+        sellAllBtn.onclick = () => {
+            sellAllEligible();
+            closeDialogue();
+        };
+        content.appendChild(sellAllBtn);
+
+        const sellHeldBtn = document.createElement('button');
+        sellHeldBtn.className = 'close-btn';
+        sellHeldBtn.textContent = 'Sell Held Item';
+        sellHeldBtn.style.marginTop = '8px';
+        sellHeldBtn.onclick = () => {
+            sellHeldItem();
+            closeDialogue();
+        };
+        content.appendChild(sellHeldBtn);
+
+        const openShopBtn = document.createElement('button');
+        openShopBtn.className = 'close-btn';
+        openShopBtn.textContent = 'Open Shop';
+        openShopBtn.style.marginTop = '8px';
+        openShopBtn.onclick = () => {
+            closeDialogue();
+            openShop();
+        };
+        content.appendChild(openShopBtn);
+
+        const sellSpecificBtn = document.createElement('button');
+        sellSpecificBtn.className = 'close-btn';
+        sellSpecificBtn.textContent = 'Sell Specific Fish';
+        sellSpecificBtn.style.marginTop = '8px';
+        sellSpecificBtn.onclick = () => {
+            closeDialogue();
+            openInventoryForSell();
+        };
+        content.appendChild(sellSpecificBtn);
     }
 }
 
 function nextDialogue() {
-    game.dialogue.index++;
-    showDialogue();
+    closeDialogue();
 }
 
 function closeDialogue() {
     game.dialogue.active = false;
-    document.getElementById('dialogue-panel').classList.add('hidden');
+    const panel = document.getElementById('dialogue-panel');
+    if (panel) {
+        panel.classList.add('hidden');
+    }
+}
+
+function sellHeldItem() {
+    const heldItem = game.hotbar[game.selectedSlot];
+    if (!heldItem || heldItem.type === 'rod' || !heldItem.sprite) {
+        showToast('Hold a fish to sell it.', 'info');
+        return;
+    }
+    sellItem(heldItem);
 }
 
 // Dev Commands

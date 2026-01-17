@@ -1716,6 +1716,33 @@ select {
     box-shadow: 0 12px 22px rgba(18, 36, 88, 0.15);
 }
 
+.inventory-item.favorite::after {
+    content: '★';
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    color: #ffffff;
+    background: linear-gradient(135deg, #ff9b2f, #ff6b3a);
+    box-shadow: 0 6px 12px rgba(186, 82, 16, 0.35);
+}
+
+.inventory-item.selected {
+    outline: 3px solid rgba(88, 216, 231, 0.9);
+    box-shadow: 0 12px 24px rgba(18, 36, 88, 0.25);
+}
+
+.inventory-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 16px;
+}
 .shop-item:hover {
     background: #fff2db;
 }
