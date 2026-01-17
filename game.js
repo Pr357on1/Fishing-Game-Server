@@ -1587,6 +1587,15 @@ function initKeybinds() {
             renderKeybinds();
         });
     }
+    const resetBtn = document.getElementById('keybinds-reset');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            game.keybinds = { ...DEFAULT_KEYBINDS };
+            saveKeybinds();
+            renderKeybinds();
+            showToast('Keybinds reset to defaults.', 'success');
+        });
+    }
     renderKeybinds();
 }
 
